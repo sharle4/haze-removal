@@ -1,0 +1,13 @@
+#Core numerical and image processing libraries
+numpy
+scipy
+Pillow
+matplotlib
+imageio
+
+#Configuration and CLI
+PyYAML
+tqdm
+
+#Testing
+pytest
