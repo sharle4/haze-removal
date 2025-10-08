@@ -14,8 +14,9 @@ refinement:
     epsilon: 1.0e-3 # Paramètre de régularisation (petite valeur pour éviter de trop lisser les contours)
 
   soft_matting:
-    lambda_param: 0.001 # Paramètre de régularisation pour le soft matting (plus il est petit, plus le lissage est fort)
+    lambda: 0.001 # Paramètre de régularisation pour le soft matting (plus il est petit, plus le lissage est fort)
     epsilon: 1e-7 # Régularisateur pour l'inversion de la matrice de covariance
+    win_size: 3 # Taille de la fenêtre (doit être impair)
 
 logging:
   level: "INFO"

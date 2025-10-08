@@ -92,18 +92,15 @@ def main(args):
         logging.info("--- Affinement avec Soft Matting ---")
         sm_config = ref_config['soft_matting']
         
-        with tqdm(total=2, desc="Soft Matting") as pbar:
-            logging.info("Affinement de la transmission avec la méthode de soft matting...")
-            refined_transmission_sm = alg.refine_transmission_soft_matting(
-                initial_transmission, hazy_image, sm_config['lambda'], sm_config['epsilon']
-            )
-            pbar.update(1)
-            
-            logging.info("Récupération de la radiance de la scène...")
-            scene_radiance_sm = alg.recover_scene_radiance(
-                hazy_image, atmospheric_light, refined_transmission_sm, alg_config['t0']
-            )
-            pbar.update(1)
+        logging.info("Affinement de la transmission avec la méthode de soft matting (allez vous faire couler un café ou deux, c'est long)...")
+        refined_transmission_sm = alg.refine_transmission_soft_matting(
+            initial_transmission, hazy_image, sm_config['lambda'], sm_config['epsilon'], sm_config['win_size']
+        )
+        
+        logging.info("Récupération de la radiance de la scène...")
+        scene_radiance_sm = alg.recover_scene_radiance(
+            hazy_image, atmospheric_light, refined_transmission_sm, alg_config['t0']
+        )
 
         results["Soft Matting"] = scene_radiance_sm
         transmissions["Soft Matting"] = refined_transmission_sm

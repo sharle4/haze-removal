@@ -4,6 +4,10 @@ Implémentation de l'algorithme "Dark Channel Prior".
 
 import numpy as np
 import scipy.ndimage as ndimage
+from scipy.sparse import lil_matrix, identity
+from scipy.sparse.linalg import cg
+from tqdm import tqdm
+
 
 def get_dark_channel(image: np.ndarray, patch_size: int) -> np.ndarray:
     """
@@ -77,20 +81,77 @@ def estimate_initial_transmission(hazy_image: np.ndarray, atmospheric_light: np.
     return transmission
 
 
-def refine_transmission_soft_matting(transmission: np.ndarray, hazy_image: np.ndarray, lambda_val: float, epsilon: float) -> np.ndarray:
+def refine_transmission_soft_matting(initial_transmission: np.ndarray, hazy_image: np.ndarray, lambda_param: float, epsilon: float, win_size: int) -> np.ndarray:
     """
-    Affine la carte de transmission en utilisant la méthode "Soft Matting"
+    Affine la carte de transmission en utilisant la méthode "Soft Matting".
+    Basée sur les équations (13), (14), (15) du papier.
 
     Args:
-        transmission (np.ndarray): Carte de transmission initiale.
+        initial_transmission (np.ndarray): Carte de transmission initiale.
         hazy_image (np.ndarray): Image brumeuse couleur (0-1), utilisée comme guide.
-        lambda_val (float): Paramètre de régularisation lambda.
+        lambda_param (float): Paramètre de régularisation lambda.
         epsilon (float): Régularisateur pour l'inversion de la matrice de covariance.
+        win_size (int): Taille de la fenêtre pour le laplacien de matting. Doit être impair.
 
     Returns:
         np.ndarray: Carte de transmission affinée.
     """
-    pass
+    if win_size % 2 == 0:
+        raise ValueError("La taille de la fenêtre (win_size) doit être un entier impair.")
+
+    epsilon = float(epsilon)
+    h, w, _ = hazy_image.shape
+    img_size = h * w
+
+    matting_laplacian = lil_matrix((img_size, img_size))
+
+    U3 = np.identity(3)
+    indices_map = np.arange(img_size).reshape(h, w)
+    win_radius = win_size // 2
+
+    print("\nConstruction de la matrice Laplacienne de Matting (cela peut prendre du temps)...")
+    for y in tqdm(range(h), desc="Matting Laplacian"):
+        for x in range(w):
+            y_min, y_max = max(0, y - win_radius), min(h, y + win_radius + 1)
+            x_min, x_max = max(0, x - win_radius), min(w, x + win_radius + 1)
+            
+            win_pixels = hazy_image[y_min:y_max, x_min:x_max].reshape(-1, 3)
+            win_indices = indices_map[y_min:y_max, x_min:x_max].flatten()
+            
+            win_area = len(win_pixels)
+            if win_area == 0:
+                continue
+
+            # mu_k et Sigma_k de l'éq. 14
+            mean_k = np.mean(win_pixels, axis=0)
+            win_pixels_centered = win_pixels - mean_k
+            cov_k = (win_pixels_centered.T @ win_pixels_centered) / win_area
+
+            # Terme d'inversion de l'éq. 14
+            inv_term = np.linalg.inv(cov_k + (epsilon / win_area) * U3)
+
+            for i_idx, i in enumerate(win_indices):
+                for j_idx, j in enumerate(win_indices):
+                    term = win_pixels_centered[i_idx].reshape(1, 3) @ inv_term @ win_pixels_centered[j_idx].reshape(3, 1)
+                    val = (1 + term[0, 0]) / win_area
+                    
+                    if i == j:
+                        matting_laplacian[i, j] += 1 - val
+                    else:
+                        matting_laplacian[i, j] -= val
+
+    # Résolution du système linéaire (L + lambda * U) * t = lambda * t_tilde (Éq. 15)
+    print("Résolution du système linéaire...")
+    U = identity(img_size, format='csr')
+    A_mat = matting_laplacian.tocsr() + lambda_param * U
+    b_vec = lambda_param * initial_transmission.flatten()
+
+    # Utilisation du solveur de gradient conjugué (PCG), comme suggéré dans l'article
+    refined_t_flat, _ = cg(A_mat, b_vec, tol=1e-6, maxiter=2000)
+
+    refined_transmission = refined_t_flat.reshape(h, w)
+    
+    return np.clip(refined_transmission, 0, 1)
 
 
 def refine_transmission_guided_filter(transmission: np.ndarray, hazy_image_gray: np.ndarray, radius: int, epsilon: float) -> np.ndarray:
