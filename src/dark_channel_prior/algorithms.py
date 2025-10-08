@@ -77,6 +77,22 @@ def estimate_initial_transmission(hazy_image: np.ndarray, atmospheric_light: np.
     return transmission
 
 
+def refine_transmission_soft_matting(transmission: np.ndarray, hazy_image: np.ndarray, lambda_val: float, epsilon: float) -> np.ndarray:
+    """
+    Affine la carte de transmission en utilisant la méthode "Soft Matting"
+
+    Args:
+        transmission (np.ndarray): Carte de transmission initiale.
+        hazy_image (np.ndarray): Image brumeuse couleur (0-1), utilisée comme guide.
+        lambda_val (float): Paramètre de régularisation lambda.
+        epsilon (float): Régularisateur pour l'inversion de la matrice de covariance.
+
+    Returns:
+        np.ndarray: Carte de transmission affinée.
+    """
+    pass
+
+
 def refine_transmission_guided_filter(transmission: np.ndarray, hazy_image_gray: np.ndarray, radius: int, epsilon: float) -> np.ndarray:
     """
     Affine la carte de transmission en utilisant un Filtre Guidé (basé sur le papier "Guided Image Filtering").

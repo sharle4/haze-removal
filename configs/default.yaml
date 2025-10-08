@@ -6,9 +6,16 @@ algorithm:
   atmospheric_light_percentile: 0.001 # 0.1% des pixels les plus brillants
   t0: 0.1 # Empêche la transmission d'être trop faible
 
-guided_filter:
-  radius: 60 # Rayon du filtre guidé (plus il est grand, plus le lissage est fort)
-  epsilon: 1.0e-3 # Paramètre de régularisation (petite valeur pour éviter de trop lisser les contours)
+refinement:
+  method: "all" # Méthode de raffinement ("guided_filter", "soft_matting" ou "all")
+  
+  guided_filter:
+    radius: 60 # Rayon du filtre guidé (plus il est grand, plus le lissage est fort)
+    epsilon: 1.0e-3 # Paramètre de régularisation (petite valeur pour éviter de trop lisser les contours)
+
+  soft_matting:
+    lambda_param: 0.001 # Paramètre de régularisation pour le soft matting (plus il est petit, plus le lissage est fort)
+    epsilon: 1e-7 # Régularisateur pour l'inversion de la matrice de covariance
 
 logging:
   level: "INFO"

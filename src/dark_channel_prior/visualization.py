@@ -23,34 +23,51 @@ def save_transmission_map(transmission_map: np.ndarray, save_path: str, cmap: st
         print(f"Erreur lors de la sauvegarde de la carte de transmission : {e}")
 
 def save_comparison_figure(
-    original: np.ndarray, 
-    result: np.ndarray, 
-    transmission: np.ndarray, 
+    original: np.ndarray,
+    results_dict: dict,
+    transmissions_dict: dict,
     save_path: str
 ):
     """
-    Sauvegarde une figure comparative montrant l'image originale, le résultat et la carte de transmission.
+    Sauvegarde une figure comparative montrant l'image originale, les différents
+    résultats de suppression de brume et leurs cartes de transmission.
 
     Args:
         original (np.ndarray): Image originale brumeuse.
-        result (np.ndarray): Image sans brume.
-        transmission (np.ndarray): Carte de transmission affinée.
+        results_dict (dict): Dictionnaire de { 'Nom de la méthode': image_resultat }.
+        transmissions_dict (dict): Dictionnaire de { 'Nom de la méthode': carte_transmission }.
         save_path (str): Chemin où sauvegarder la figure.
     """
-    fig, axes = plt.subplots(1, 3, figsize=(18, 6))
+    num_methods = len(results_dict)
+    num_cols = 1 + num_methods
     
-    axes[0].imshow(original)
-    axes[0].set_title("Image Originale Brumeuse")
-    axes[0].axis('off')
+    fig, axes = plt.subplots(2, num_cols, figsize=(6 * num_cols, 10))
     
-    axes[1].imshow(result)
-    axes[1].set_title("Image Sans Brume")
-    axes[1].axis('off')
+    # --- Ligne 1: Images ---
+    axes[0, 0].imshow(original)
+    axes[0, 0].set_title("Image Originale Brumeuse")
+    axes[0, 0].axis('off')
+
+    for i, (method_name, result_img) in enumerate(results_dict.items()):
+        ax = axes[0, i + 1]
+        ax.imshow(result_img)
+        ax.set_title(f"Résultat ({method_name})")
+        ax.axis('off')
+        
+    # --- Ligne 2: Cartes de transmission ---
+
+    axes[1, 0].axis('off') 
     
-    axes[2].imshow(transmission, cmap='gray')
-    axes[2].set_title("Carte de Transmission (Profondeur)")
-    axes[2].axis('off')
-    
+    for i, (method_name, trans_map) in enumerate(transmissions_dict.items()):
+        ax = axes[1, i + 1]
+        im = ax.imshow(trans_map, cmap='gray', vmin=0, vmax=1)
+        ax.set_title(f"Transmission ({method_name})")
+        ax.axis('off')
+
+    for i in range(num_methods + 1, num_cols):
+        axes[0, i].axis('off')
+        axes[1, i].axis('off')
+
     plt.tight_layout()
     fig.savefig(save_path, bbox_inches='tight')
     plt.close(fig)

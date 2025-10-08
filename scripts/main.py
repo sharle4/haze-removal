@@ -40,54 +40,96 @@ def main(args):
         return
     
     alg_config = config['algorithm']
-    gf_config = config['guided_filter']
+    ref_config = config['refinement']
 
     # --- 2. Exécution de l'algorithme ---
-    with tqdm(total=5, desc="Traitement de l'image") as pbar:
+    with tqdm(total=3, desc="Traitement de l'image") as pbar:
         logging.info("Calcul du canal sombre...")
         dark_channel = alg.get_dark_channel(hazy_image, alg_config['patch_size'])
         pbar.update(1)
-
+        
         logging.info("Estimation de la lumière atmosphérique...")
         atmospheric_light = alg.estimate_atmospheric_light(
             hazy_image, dark_channel, alg_config['atmospheric_light_percentile']
         )
         logging.info(f"Lumière atmosphérique estimée (A) = {atmospheric_light}")
         pbar.update(1)
-
+        
         logging.info("Estimation de la transmission initiale...")
         initial_transmission = alg.estimate_initial_transmission(
             hazy_image, atmospheric_light, alg_config['patch_size'], alg_config['omega']
         )
         pbar.update(1)
-
-        logging.info("Affinement de la transmission avec le filtre guidé...")
-        hazy_gray = prep.convert_to_grayscale(hazy_image)
-        refined_transmission = alg.refine_transmission_guided_filter(
-            initial_transmission, hazy_gray, gf_config['radius'], gf_config['epsilon']
-        )
-        pbar.update(1)
         
-        logging.info("Récupération de la radiance de la scène...")
-        scene_radiance = alg.recover_scene_radiance(
-            hazy_image, atmospheric_light, refined_transmission, alg_config['t0']
-        )
-        pbar.update(1)
+    # --- 3. Affinement et récupération de la scène ---
+    results = {}
+    transmissions = {}
+    refinement_method = ref_config['method']
 
-    # --- 3. Sauvegarde des résultats ---
+    if refinement_method in ["guided_filter", "all"]:
+        logging.info("--- Affinement avec le Filtre Guidé ---")
+        gf_config = ref_config['guided_filter']
+        hazy_gray = prep.convert_to_grayscale(hazy_image)
+        
+        with tqdm(total=2, desc="Filtre Guidé") as pbar:
+            logging.info("Affinement de la transmission avec le filtre guidé...")
+            refined_transmission_gf = alg.refine_transmission_guided_filter(
+                initial_transmission, hazy_gray, gf_config['radius'], gf_config['epsilon']
+            )
+            pbar.update(1)
+            
+            logging.info("Récupération de la radiance de la scène...")
+            scene_radiance_gf = alg.recover_scene_radiance(
+                hazy_image, atmospheric_light, refined_transmission_gf, alg_config['t0']
+            )
+            pbar.update(1)
+            
+        results["Filtre Guidé"] = scene_radiance_gf
+        transmissions["Filtre Guidé"] = refined_transmission_gf
+        logging.info("Affinement par Filtre Guidé terminé.")
+
+    if refinement_method in ["soft_matting", "all"]:
+        logging.info("--- Affinement avec Soft Matting ---")
+        sm_config = ref_config['soft_matting']
+        
+        with tqdm(total=2, desc="Soft Matting") as pbar:
+            logging.info("Affinement de la transmission avec la méthode de soft matting...")
+            refined_transmission_sm = alg.refine_transmission_soft_matting(
+                initial_transmission, hazy_image, sm_config['lambda'], sm_config['epsilon']
+            )
+            pbar.update(1)
+            
+            logging.info("Récupération de la radiance de la scène...")
+            scene_radiance_sm = alg.recover_scene_radiance(
+                hazy_image, atmospheric_light, refined_transmission_sm, alg_config['t0']
+            )
+            pbar.update(1)
+
+        results["Soft Matting"] = scene_radiance_sm
+        transmissions["Soft Matting"] = refined_transmission_sm
+        logging.info("Affinement par Soft Matting terminé.")
+
+
+    # --- 4. Sauvegarde des résultats ---
     logging.info("Sauvegarde des résultats...")
     
     figures_dir = os.path.join(args.output_dir, "figures")
     os.makedirs(figures_dir, exist_ok=True)
     
-    io.save_image(scene_radiance, os.path.join(figures_dir, "result_dehazed.png"))
-    vis.save_transmission_map(initial_transmission, os.path.join(figures_dir, "transmission_initial.png"))
-    vis.save_transmission_map(refined_transmission, os.path.join(figures_dir, "transmission_refined.png"))
+    io.save_image(initial_transmission, os.path.join(figures_dir, "transmission_initial.png"))
+    for method_name, result_img in results.items():
+        filename = f"result_dehazed_{method_name.lower().replace(' ', '_')}.png"
+        io.save_image(result_img, os.path.join(figures_dir, filename))
+
+    for method_name, trans_map in transmissions.items():
+        filename = f"transmission_{method_name.lower().replace(' ', '_')}.png"
+        vis.save_transmission_map(trans_map, os.path.join(figures_dir, filename))
     
-    vis.save_comparison_figure(
-        hazy_image, scene_radiance, refined_transmission,
-        os.path.join(figures_dir, "comparison.png")
-    )
+    if results:
+        vis.save_comparison_figure(
+            hazy_image, results, transmissions,
+            os.path.join(figures_dir, "comparison.png")
+        )
     
     logging.info("Expérience terminée avec succès.")
 
