@@ -6,8 +6,10 @@ Le projet utilise à la fois la méthode de "soft matting" ainsi que l'altrenati
 
 Utilisation classique du projet (sous windows) :
 
-'git clone https://github.com/sharle4/haze-removal.git
+```
+git clone https://github.com/sharle4/haze-removal.git
 py -m venv venv #création d'un environnement Python virtuel
 source venv/Scripts/activate #sous windows, ou source venv/bin/activate sous Linux
 pip install -r requirements.txt
-$ python scripts/run_experiment.py #avec args facultatifs'
+$ python scripts/run_experiment.py #avec args facultatifs
+```
