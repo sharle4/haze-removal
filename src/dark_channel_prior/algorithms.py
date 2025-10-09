@@ -147,7 +147,7 @@ def refine_transmission_soft_matting(initial_transmission: np.ndarray, hazy_imag
     b_vec = lambda_param * initial_transmission.flatten()
 
     # Utilisation du solveur de gradient conjugué (PCG), comme suggéré dans l'article
-    refined_t_flat, _ = cg(A_mat, b_vec, tol=1e-6, maxiter=2000)
+    refined_t_flat, _ = cg(A_mat, b_vec, rtol=1e-6, maxiter=2000)
 
     refined_transmission = refined_t_flat.reshape(h, w)
     

@@ -2,7 +2,7 @@
 
 Ce projet est une implémentation en Python du papier de recherche "Single Image Haze Removal Using Dark Channel Prior" par Kaiming He, Jian Sun, et Xiaoou Tang (2009). L'objectif est de reproduire fidèlement les algorithmes décrits pour supprimer la brume d'une seule image.
 
-Le projet utilise à la fois la méthode de "soft matting" ainsi que l'altrenative "Guided Filter" proposé par Kaiming He, Jian Sun, et Xiaoou Tang dans l'article "Guided Image Filtering" (2010).
+Le projet utilise à la fois la méthode de "soft matting" ainsi que l'altrenative "Guided Filter" proposé par Kaiming He, Jian Sun, et Xiaoou Tang dans l'article "Guided Image Filtering" (2010). (La méthode soft matting est désactivée par défaut car prend énormément de temps)
 
 Utilisation classique du projet (sous windows) :
 
