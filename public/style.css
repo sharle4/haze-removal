@@ -43,3 +43,12 @@ input[type="range"]::-moz-range-thumb {
 .comparison-container:hover .comparison-slider {
     background-color: #4299e1;
 }
+
+input[type=number]::-webkit-inner-spin-button, 
+input[type=number]::-webkit-outer-spin-button { 
+    -webkit-appearance: none; 
+    margin: 0; 
+}
+input[type=number] {
+    -moz-appearance: textfield;
+}

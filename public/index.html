@@ -28,13 +28,16 @@
 
                 <!-- Section Paramètres Algorithme -->
                 <div id="params-container" class="space-y-6 opacity-50 pointer-events-none">
-                    <h3 class="text-lg font-medium text-gray-300 mt-6">2. Ajuster les paramètres</h3>
+                    <div class="flex justify-between items-center">
+                        <h3 class="text-lg font-medium text-gray-300">2. Ajuster les paramètres</h3>
+                        <button id="default-button" class="text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 font-semibold py-1 px-3 rounded-md transition-colors duration-200">Valeurs par défaut</button>
+                    </div>
                     
                     <!-- Patch Size -->
                     <div>
                         <div class="flex justify-between items-center mb-1">
                             <label for="patch_size" class="text-sm">Taille du Patch</label>
-                            <span id="patch_size_value" class="text-sm font-mono bg-gray-700 px-2 py-1 rounded">15</span>
+                             <input type="number" id="patch_size_value" class="w-16 text-center text-sm font-mono bg-gray-700 px-2 py-1 rounded">
                         </div>
                         <input type="range" id="patch_size" min="3" max="51" step="2" value="15" class="w-full">
                     </div>
@@ -43,7 +46,7 @@
                     <div>
                         <div class="flex justify-between items-center mb-1">
                             <label for="omega" class="text-sm">Omega (Force)</label>
-                            <span id="omega_value" class="text-sm font-mono bg-gray-700 px-2 py-1 rounded">0.95</span>
+                            <input type="number" id="omega_value" class="w-16 text-center text-sm font-mono bg-gray-700 px-2 py-1 rounded" step="0.01">
                         </div>
                         <input type="range" id="omega" min="0.5" max="1.0" step="0.01" value="0.95" class="w-full">
                     </div>
@@ -56,12 +59,12 @@
                         </div>
                         <input type="range" id="atmospheric_light_percentile" min="0.0001" max="0.01" step="0.0001" value="0.001" class="w-full">
                     </div>
-                    
+
                     <!-- t0 -->
                     <div>
                         <div class="flex justify-between items-center mb-1">
                             <label for="t0" class="text-sm">Transmission Min (t₀)</label>
-                            <span id="t0_value" class="text-sm font-mono bg-gray-700 px-2 py-1 rounded">0.10</span>
+                            <input type="number" id="t0_value" class="w-16 text-center text-sm font-mono bg-gray-700 px-2 py-1 rounded" step="0.01">
                         </div>
                         <input type="range" id="t0" min="0.01" max="0.5" step="0.01" value="0.1" class="w-full">
                     </div>
@@ -71,7 +74,7 @@
                     <div>
                         <div class="flex justify-between items-center mb-1">
                             <label for="gf_radius" class="text-sm">Rayon</label>
-                            <span id="gf_radius_value" class="text-sm font-mono bg-gray-700 px-2 py-1 rounded">60</span>
+                            <input type="number" id="gf_radius_value" class="w-16 text-center text-sm font-mono bg-gray-700 px-2 py-1 rounded">
                         </div>
                         <input type="range" id="gf_radius" min="1" max="150" step="1" value="60" class="w-full">
                     </div>
@@ -80,7 +83,7 @@
                     <div>
                         <div class="flex justify-between items-center mb-1">
                             <label for="gf_epsilon" class="text-sm">Epsilon</label>
-                            <span id="gf_epsilon_value" class="text-sm font-mono bg-gray-700 px-2 py-1 rounded">0.001</span>
+                            <input type="number" id="gf_epsilon_value" class="w-16 text-center text-sm font-mono bg-gray-700 px-2 py-1 rounded" step="0.0001">
                         </div>
                         <input type="range" id="gf_epsilon" min="0.0001" max="0.1" step="0.0001" value="0.001" class="w-full">
                     </div>
@@ -147,18 +150,21 @@
                 </div>
             </section>
         </main>
+        
+        <!-- Références scientifiques -->
+        <footer class="text-center mt-12 pt-8 border-t border-gray-700">
+             <h2 class="text-xl font-semibold text-white mb-4">Références Scientifiques</h2>
+             <div class="text-gray-400 text-sm max-w-4xl mx-auto space-y-2">
+                 <p>
+                     <strong>Dark Channel Prior:</strong> K. He, J. Sun and X. Tang, "Single Image Haze Removal Using Dark Channel Prior," in <em>IEEE Transactions on Pattern Analysis and Machine Intelligence</em>, vol. 33, no. 12, pp. 2341-2353, Dec. 2011, doi: <a href="https://doi.org/10.1109/TPAMI.2010.168" class="text-blue-400 hover:underline">10.1109/TPAMI.2010.168</a>.
+                 </p>
+                 <p>
+                     <strong>Guided Filter:</strong> K. He, J. Sun and X. Tang, "Guided Image Filtering," in <em>IEEE Transactions on Pattern Analysis and Machine Intelligence</em>, vol. 35, no. 6, pp. 1397-1409, June 2013, doi: <a href="https://doi.org/10.1109/TPAMI.2012.213" class="text-blue-400 hover:underline">10.1109/TPAMI.2012.213</a>.
+                 </p>
+             </div>
+        </footer>
     </div>
-    <footer class="text-center mt-12 pt-8 border-t border-gray-700">
-        <h2 class="text-xl font-semibold text-white mb-4">Références Scientifiques</h2>
-        <div class="text-gray-400 text-sm max-w-4xl mx-auto space-y-2">
-            <p>
-                <strong>Dark Channel Prior:</strong> K. He, J. Sun and X. Tang, "Single Image Haze Removal Using Dark Channel Prior," in <em>IEEE Transactions on Pattern Analysis and Machine Intelligence</em>, vol. 33, no. 12, pp. 2341-2353, Dec. 2011, doi: <a href="https://doi.org/10.1109/TPAMI.2010.168" class="text-blue-400 hover:underline">10.1109/TPAMI.2010.168</a>.
-            </p>
-            <p>
-                <strong>Guided Filter:</strong> K. He, J. Sun and X. Tang, "Guided Image Filtering," in <em>IEEE Transactions on Pattern Analysis and Machine Intelligence</em>, vol. 35, no. 6, pp. 1397-1409, June 2013, doi: <a href="https://doi.org/10.1109/TPAMI.2012.213" class="text-blue-400 hover:underline">10.1109/TPAMI.2012.213</a>.
-            </p>
-        </div>
-    </footer>
+
     <script src="./script.js"></script>
 </body>
 </html>

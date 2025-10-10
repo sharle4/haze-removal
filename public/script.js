@@ -3,6 +3,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const imageUpload = document.getElementById('image-upload');
     const paramsContainer = document.getElementById('params-container');
     const processButton = document.getElementById('process-button');
+    const defaultButton = document.getElementById('default-button');
     const logConsole = document.getElementById('log-console');
     const placeholder = document.getElementById('placeholder');
     const mainDisplay = document.getElementById('main-display');
@@ -12,16 +13,18 @@ document.addEventListener('DOMContentLoaded', () => {
     const comparisonContainer = document.getElementById('comparison-container');
     const comparisonSlider = document.getElementById('comparison-slider');
     
-    const sliders = [
-        { id: 'patch_size', valueId: 'patch_size_value' },
-        { id: 'omega', valueId: 'omega_value' },
-        { id: 'atmospheric_light_percentile', valueId: 'atmospheric_light_percentile_value' },
-        { id: 't0', valueId: 't0_value' },
-        { id: 'gf_radius', valueId: 'gf_radius_value' },
-        { id: 'gf_epsilon', valueId: 'gf_epsilon_value' }
+    const controls = [
+        { sliderId: 'patch_size', inputId: 'patch_size_value', configPath: 'algorithm.patch_size' },
+        { sliderId: 'omega', inputId: 'omega_value', configPath: 'algorithm.omega' },
+        { sliderId: 'atmospheric_light_percentile', inputId: 'atmospheric_light_percentile_value', configPath: 'algorithm.atmospheric_light_percentile' },
+        { sliderId: 't0', inputId: 't0_value', configPath: 'algorithm.t0' },
+        { sliderId: 'gf_radius', inputId: 'gf_radius_value', configPath: 'refinement.guided_filter.radius' },
+        { sliderId: 'gf_epsilon', inputId: 'gf_epsilon_value', configPath: 'refinement.guided_filter.epsilon' }
     ];
     let imageFile = null;
     let eventSource = null;
+    let defaultConfig = null;
+
     // --- Fonctions utilitaires ---
     function addLog(message, type = 'info') {
         if (logConsole.querySelector('.text-gray-500')) {
@@ -63,17 +66,46 @@ document.addEventListener('DOMContentLoaded', () => {
         mainDisplay.classList.add('hidden');
         placeholder.classList.remove('hidden');
     }
+    function updateControlsFromConfig(config) {
+        controls.forEach(control => {
+            const slider = document.getElementById(control.sliderId);
+            const input = document.getElementById(control.inputId);
+            const path = control.configPath.split('.');
+            const value = path.reduce((obj, key) => obj && obj[key], config);
+            if (value !== undefined) {
+                slider.value = value;
+                input.value = formatValue(input, value);
+            }
+        });
+    }
+    
+    function formatValue(inputElement, value) {
+        const step = parseFloat(inputElement.step) || 1;
+        if (step < 1) {
+            const decimals = step.toString().split('.')[1]?.length || 0;
+            return parseFloat(value).toFixed(decimals);
+        }
+        return parseInt(value);
+    }
+
     // --- Gestion des événements ---
     
-    sliders.forEach(slider => {
-        const input = document.getElementById(slider.id);
-        const valueSpan = document.getElementById(slider.valueId);
-        input.addEventListener('input', () => {
-            const decimals =
-                slider.id === 'atmospheric_light_percentile' ? 5 :
-                slider.id === 'gf_epsilon' ? 4 :
-                (slider.id.includes('omega') || slider.id.includes('t0') ? 2 : 0);
-            valueSpan.textContent = parseFloat(input.value).toFixed(decimals);
+    controls.forEach(control => {
+        const slider = document.getElementById(control.sliderId);
+        const input = document.getElementById(control.inputId);
+        
+        slider.addEventListener('input', () => {
+            input.value = formatValue(input, slider.value);
+        });
+        input.addEventListener('change', () => {
+            let value = parseFloat(input.value);
+            const min = parseFloat(slider.min);
+            const max = parseFloat(slider.max);
+            if (isNaN(value)) value = min;
+            value = Math.max(min, Math.min(max, value));
+            
+            slider.value = value;
+            input.value = formatValue(input, value);
         });
     });
     imageUpload.addEventListener('change', (e) => {
@@ -94,6 +126,15 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
     
+    defaultButton.addEventListener('click', () => {
+        if (defaultConfig) {
+            updateControlsFromConfig(defaultConfig);
+            addLog("Paramètres réinitialisés aux valeurs par défaut.", "info");
+        } else {
+            addLog("Erreur: Configuration par défaut non chargée.", "error");
+        }
+    });
+    
     processButton.addEventListener('click', async () => {
         if (!imageFile) {
             addLog("Erreur: Aucune image n'est chargée.", 'error');
@@ -105,8 +146,10 @@ document.addEventListener('DOMContentLoaded', () => {
         addLog('Initialisation du traitement...');
         const formData = new FormData();
         formData.append('image', imageFile);
-        sliders.forEach(slider => {
-             formData.append(slider.id, document.getElementById(slider.id).value);
+        controls.forEach(c => {
+             const key = c.sliderId;
+             const value = document.getElementById(c.sliderId).value;
+             formData.append(key, value);
         });
         
         try {
@@ -125,23 +168,22 @@ document.addEventListener('DOMContentLoaded', () => {
             // Étape 2: Se connecter au flux SSE pour les logs
             connectToLogStream(jobId);
         } catch (error) {
-            addLog(`Erreur lors du lancement du traitement: ${error.message}`, 'error');
+            addLog(`Erreur lors du lancement: ${error.message}`, 'error');
             processButton.disabled = false;
             processButton.textContent = 'Lancer le Traitement';
         }
     });
+    // Connexion au flux de logs SSE
     function connectToLogStream(jobId) {
-        if(eventSource) {
-            eventSource.close();
-        }
+        addLog(`Tâche démarrée avec l'ID: ${jobId}`, 'success');
+        if(eventSource) eventSource.close();
         eventSource = new EventSource(`/stream-logs/${jobId}`);
         
         eventSource.onmessage = (event) => {
             const data = JSON.parse(event.data.replace(/'/g, '"'));
             
-            if(data.type === 'log') {
-                addLog(data.message);
-            } else if(data.type === 'result') {
+            if(data.type === 'log') addLog(data.message);
+            else if(data.type === 'result') {
                 addLog(`Résultat intermédiaire reçu: ${data.name}`, 'success');
                 setIntermediateImage(data.name, data.image);
             } else if(data.type === 'done') {
@@ -161,7 +203,7 @@ document.addEventListener('DOMContentLoaded', () => {
             addLog('Connexion au serveur perdue.', 'error');
             processButton.disabled = false;
             processButton.textContent = 'Lancer le Traitement';
-            eventSource.close();
+            if(eventSource) eventSource.close();
         };
     }
     // --- Gestion du slider de comparaison ---
@@ -172,24 +214,22 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!isDragging) return;
         const rect = comparisonContainer.getBoundingClientRect();
         let offsetX = e.clientX - rect.left;
-        let width = Math.max(0, Math.min(offsetX, rect.width));
-        let percentage = (width / rect.width) * 100;
+        let percentage = (offsetX / rect.width) * 100;
+        percentage = Math.max(0, Math.min(100, percentage));
         resultWrapper.style.width = `${percentage}%`;
         comparisonSlider.style.left = `${percentage}%`;
     });
+    
     // --- Initialisation ---
     resetUI();
     
     fetch('/default-config')
         .then(res => res.json())
         .then(config => {
-             document.getElementById('patch_size').value = config.algorithm.patch_size;
-             document.getElementById('omega').value = config.algorithm.omega;
-             document.getElementById('atmospheric_light_percentile').value = config.algorithm.atmospheric_light_percentile;
-             document.getElementById('t0').value = config.algorithm.t0;
-             document.getElementById('gf_radius').value = config.refinement.guided_filter.radius;
-             document.getElementById('gf_epsilon').value = config.refinement.guided_filter.epsilon;
-             
-             sliders.forEach(s => document.getElementById(s.id).dispatchEvent(new Event('input')));
-        }).catch(e => console.error("Impossible de charger la config par défaut", e));
+             defaultConfig = config;
+             updateControlsFromConfig(defaultConfig);
+        }).catch(e => {
+            console.error("Impossible de charger la config par défaut", e);
+            addLog("Impossible de charger la config par défaut.", "error");
+        });
 });
