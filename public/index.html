@@ -12,84 +12,53 @@
         <!-- En-tête -->
         <header class="text-center mb-8">
             <h1 class="text-4xl font-bold text-white mb-2">Démonstration de l'algorithme "Dark Channel Prior"</h1>
-            <p class="text-lg text-gray-400">Chargez une image brumeuse et ajustez les paramètres pour voir la magie opérer.</p>
+            <p class="text-lg text-gray-400">Chargez une image, ajustez les paramètres et comparez les résultats en temps réel.</p>
         </header>
 
         <main class="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            <!-- Colonne de Contrôles -->
-            <aside class="lg:col-span-1 bg-gray-800 p-6 rounded-2xl shadow-lg">
-                <h2 class="text-2xl font-semibold mb-6 border-b border-gray-700 pb-3">Paramètres</h2>
+            <!-- === COLONNE DE CONTRÔLES === -->
+            <aside class="lg:col-span-1 bg-gray-800 p-6 rounded-2xl shadow-lg self-start sticky top-8">
+                <h2 class="text-2xl font-semibold mb-6 border-b border-gray-700 pb-3">Panneau de Contrôle</h2>
                 
-                <!-- Section Fichier -->
+                <!-- 1. Fichier -->
                 <div class="mb-6">
                     <label for="image-upload" class="block mb-2 text-sm font-medium text-gray-300">1. Charger une image</label>
                     <input type="file" id="image-upload" accept="image/*" class="block w-full text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-500 file:text-white hover:file:bg-blue-600 transition-colors duration-200 cursor-pointer">
                 </div>
 
-                <!-- Section Paramètres Algorithme -->
+                <!-- 2. Mode de Traitement -->
+                <div id="mode-selection-container" class="mb-6 opacity-50 pointer-events-none">
+                     <label class="block mb-3 text-sm font-medium text-gray-300">2. Choisir le mode</label>
+                     <div class="flex bg-gray-700 rounded-lg p-1">
+                         <button id="mode-single" class="flex-1 text-sm py-2 rounded-md transition-colors duration-300">Analyse Unique</button>
+                         <button id="mode-experiment" class="flex-1 text-sm py-2 rounded-md transition-colors duration-300">Mode Expérimental</button>
+                     </div>
+                </div>
+
+                <!-- 3. Conteneur de Paramètres -->
                 <div id="params-container" class="space-y-6 opacity-50 pointer-events-none">
                     <div class="flex justify-between items-center">
-                        <h3 class="text-lg font-medium text-gray-300">2. Ajuster les paramètres</h3>
-                        <button id="default-button" class="text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 font-semibold py-1 px-3 rounded-md transition-colors duration-200">Valeurs par défaut</button>
+                        <h3 class="text-lg font-medium text-gray-300">3. Ajuster les paramètres</h3>
+                        <button id="default-button" class="text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 font-semibold py-1 px-3 rounded-md transition-colors duration-200">Défaut</button>
                     </div>
                     
-                    <!-- Patch Size -->
-                    <div>
-                        <div class="flex justify-between items-center mb-1">
-                            <label for="patch_size" class="text-sm">Taille du Patch</label>
-                             <input type="number" id="patch_size_value" class="w-16 text-center text-sm font-mono bg-gray-700 px-2 py-1 rounded">
-                        </div>
-                        <input type="range" id="patch_size" min="3" max="51" step="2" value="15" class="w-full">
+                    <div id="single-run-info" class="text-xs text-gray-400 bg-gray-900/50 p-3 rounded-md">
+                        Ajustez les curseurs pour définir les valeurs d'une unique exécution.
+                    </div>
+                    <div id="experiment-run-info" class="text-xs text-gray-400 bg-gray-900/50 p-3 rounded-md hidden">
+                        Pour chaque paramètre, ajoutez une ou plusieurs valeurs à tester. Le système calculera toutes les combinaisons.
                     </div>
 
-                    <!-- Omega -->
-                    <div>
-                        <div class="flex justify-between items-center mb-1">
-                            <label for="omega" class="text-sm">Omega (Force)</label>
-                            <input type="number" id="omega_value" class="w-16 text-center text-sm font-mono bg-gray-700 px-2 py-1 rounded" step="0.01">
-                        </div>
-                        <input type="range" id="omega" min="0.5" max="1.0" step="0.01" value="0.95" class="w-full">
-                    </div>
+                    <!-- Paramètres Dynamiques -->
+                    <div id="dynamic-params"></div>
 
-                    <!-- Atmospheric Light Percentile -->
-                    <div>
-                        <div class="flex justify-between items-center mb-1">
-                            <label for="atmospheric_light_percentile" class="text-sm">Pourcentage de lumière atmosphérique</label>
-                            <span id="atmospheric_light_percentile_value" class="text-sm font-mono bg-gray-700 px-2 py-1 rounded">0.0001</span>
-                        </div>
-                        <input type="range" id="atmospheric_light_percentile" min="0.0001" max="0.01" step="0.0001" value="0.001" class="w-full">
-                    </div>
-
-                    <!-- t0 -->
-                    <div>
-                        <div class="flex justify-between items-center mb-1">
-                            <label for="t0" class="text-sm">Transmission Min (t₀)</label>
-                            <input type="number" id="t0_value" class="w-16 text-center text-sm font-mono bg-gray-700 px-2 py-1 rounded" step="0.01">
-                        </div>
-                        <input type="range" id="t0" min="0.01" max="0.5" step="0.01" value="0.1" class="w-full">
-                    </div>
-
-                    <h3 class="text-lg font-medium text-gray-300 pt-4 border-t border-gray-700">Filtre Guidé</h3>
-                    <!-- Guided Filter Radius -->
-                    <div>
-                        <div class="flex justify-between items-center mb-1">
-                            <label for="gf_radius" class="text-sm">Rayon</label>
-                            <input type="number" id="gf_radius_value" class="w-16 text-center text-sm font-mono bg-gray-700 px-2 py-1 rounded">
-                        </div>
-                        <input type="range" id="gf_radius" min="1" max="150" step="1" value="60" class="w-full">
-                    </div>
-
-                    <!-- Guided Filter Epsilon -->
-                    <div>
-                        <div class="flex justify-between items-center mb-1">
-                            <label for="gf_epsilon" class="text-sm">Epsilon</label>
-                            <input type="number" id="gf_epsilon_value" class="w-16 text-center text-sm font-mono bg-gray-700 px-2 py-1 rounded" step="0.0001">
-                        </div>
-                        <input type="range" id="gf_epsilon" min="0.0001" max="0.1" step="0.0001" value="0.001" class="w-full">
+                    <div class="pt-4 border-t border-gray-700">
+                        <h3 class="text-lg font-medium text-gray-300">Filtre Guidé</h3>
+                        <div id="dynamic-params-gf"></div>
                     </div>
                 </div>
 
-                <!-- Bouton d'action -->
+                <!-- 4. Bouton d'action -->
                 <div class="mt-8">
                      <button id="process-button" class="w-full bg-blue-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-blue-700 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 disabled:bg-gray-600 disabled:cursor-not-allowed">
                         Lancer le Traitement
@@ -97,16 +66,20 @@
                 </div>
             </aside>
 
-            <!-- Colonne de Résultats -->
+            <!-- === COLONNE DE RÉSULTATS === -->
             <section class="lg:col-span-2 space-y-8">
-                <!-- Zone d'affichage principale -->
-                <div id="results-area" class="bg-gray-800 p-6 rounded-2xl shadow-lg min-h-[400px] flex items-center justify-center">
-                    <div id="placeholder" class="text-center text-gray-500">
+                <!-- Placeholder Initial -->
+                <div id="placeholder" class="bg-gray-800 p-6 rounded-2xl shadow-lg min-h-[400px] flex items-center justify-center">
+                    <div class="text-center text-gray-500">
                         <svg xmlns="http://www.w3.org/2000/svg" class="mx-auto h-12 w-12" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
                         <p class="mt-2">Les résultats s'afficheront ici.</p>
                         <p class="text-sm">Veuillez charger une image pour commencer.</p>
                     </div>
-                    <div id="main-display" class="w-full hidden">
+                </div>
+
+                <!-- Vue: Analyse Unique -->
+                <div id="single-run-view" class="hidden space-y-8">
+                    <div class="bg-gray-800 p-6 rounded-2xl shadow-lg">
                         <h3 class="text-xl font-semibold mb-4 text-center">Comparaison Avant / Après</h3>
                         <div id="comparison-container" class="relative w-full mx-auto aspect-video overflow-hidden rounded-lg bg-gray-900 comparison-container">
                             <img id="original-image-comp" src="" class="absolute top-0 left-0 w-full h-full object-contain">
@@ -116,33 +89,35 @@
                             <div id="comparison-slider" class="comparison-slider"></div>
                         </div>
                     </div>
+                    <div class="bg-gray-800 p-6 rounded-2xl shadow-lg">
+                        <h3 class="text-xl font-semibold mb-4">Visualisations Intermédiaires</h3>
+                        <div id="intermediate-results" class="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
+                            <!-- Contenu généré par le script js -->
+                        </div>
+                    </div>
                 </div>
 
-                <!-- Résultats intermédiaires -->
-                <div class="bg-gray-800 p-6 rounded-2xl shadow-lg">
-                    <h3 class="text-xl font-semibold mb-4">Visualisations Intermédiaires</h3>
-                    <div id="intermediate-results" class="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
-                        <div class="space-y-2">
-                            <div class="aspect-square bg-gray-700 rounded-lg flex items-center justify-center"><img id="img-dark_channel" class="w-full h-full object-contain rounded-lg hidden"></div>
-                            <p class="text-sm text-gray-400">Dark Channel</p>
+                <!-- Vue: Mode Expérimental -->
+                <div id="experiment-view" class="hidden space-y-8">
+                    <div class="bg-gray-800 p-6 rounded-2xl shadow-lg">
+                        <div class="flex justify-between items-center mb-4">
+                            <h3 class="text-xl font-semibold">Résultats de l'Expérience</h3>
+                            <div class="text-sm text-gray-400">
+                                <span id="results-count">0</span> / <span id="total-runs">0</span> combinaisons calculées
+                            </div>
                         </div>
-                        <div class="space-y-2">
-                             <div class="aspect-square bg-gray-700 rounded-lg flex items-center justify-center"><img id="img-initial_transmission" class="w-full h-full object-contain rounded-lg hidden"></div>
-                            <p class="text-sm text-gray-400">Transmission Initiale</p>
+                        <div id="original-image-experiment-container" class="mb-6">
+                            <h4 class="text-md font-semibold mb-2 text-center text-gray-300">Image Originale</h4>
+                            <img id="original-image-exp" src="" class="w-full h-auto object-contain rounded-lg bg-gray-900 max-h-96">
                         </div>
-                        <div class="space-y-2">
-                           <div class="aspect-square bg-gray-700 rounded-lg flex items-center justify-center"><img id="img-refined_transmission" class="w-full h-full object-contain rounded-lg hidden"></div>
-                            <p class="text-sm text-gray-400">Transmission Affinée</p>
-                        </div>
-                        <div class="space-y-2">
-                            <div class="aspect-square bg-gray-700 rounded-lg flex items-center justify-center"><img id="img-final_result" class="w-full h-full object-contain rounded-lg hidden"></div>
-                            <p class="text-sm text-gray-400">Résultat Final</p>
+                        <div id="experiment-grid" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+                            <!-- Cartes de résultats générées par le script js -->
                         </div>
                     </div>
                 </div>
 
                 <!-- Console de log -->
-                <div class="bg-gray-800 p-6 rounded-2xl shadow-lg">
+                <div id="log-container" class="bg-gray-800 p-6 rounded-2xl shadow-lg hidden">
                     <h3 class="text-xl font-semibold mb-4">Console de Progression</h3>
                     <div id="log-console" class="w-full h-48 bg-black rounded-lg p-4 font-mono text-sm text-green-400 overflow-y-auto">
                         <p class="text-gray-500">Les logs du traitement apparaîtront ici...</p>
@@ -151,7 +126,7 @@
             </section>
         </main>
         
-        <!-- Références scientifiques -->
+        <!-- Pied de page -->
         <footer class="text-center mt-12 pt-8 border-t border-gray-700">
              <h2 class="text-xl font-semibold text-white mb-4">Références Scientifiques</h2>
              <div class="text-gray-400 text-sm max-w-4xl mx-auto space-y-2">
@@ -164,7 +139,6 @@
              </div>
         </footer>
     </div>
-
     <script src="./script.js"></script>
 </body>
 </html>
