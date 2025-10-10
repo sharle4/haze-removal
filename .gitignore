@@ -6,6 +6,7 @@ __pycache__/
 # images & results
 images/
 results/
+experiments/
 
 # C extensions
 *.so

@@ -1,0 +1,20 @@
+experiment_name: "batch_comparison_01"
+
+image_path: "images/haze.jpg"
+base_config: "configs/default.yaml"
+
+# Le script générera le produit cartésien de toutes les listes de valeurs.
+parameter_grid:
+  algorithm.patch_size:
+    - 15
+    - 21
+    - 25
+  
+  algorithm.omega:
+    - 0.85
+    - 0.90
+    - 0.95
+
+  refinement.guided_filter.radius:
+    - 60
+    - 80
