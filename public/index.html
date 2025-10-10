@@ -99,11 +99,54 @@
 
                 <!-- Vue: Mode Expérimental -->
                 <div id="experiment-view" class="hidden space-y-8">
+                    
+                    <!-- Panneau de comparaison -->
+                    <div id="experiment-comparison-panel" class="hidden bg-gray-800 p-6 rounded-2xl shadow-lg">
+                        <div class="flex justify-between items-center mb-4">
+                            <h3 class="text-xl font-semibold">Comparaison des résultats sélectionnés</h3>
+                             <button id="clear-comparison-btn" class="text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 font-semibold py-1 px-3 rounded-md transition-colors">Vider la sélection</button>
+                        </div>
+                        <div class="grid grid-cols-2 gap-6 items-start">
+                            <!-- Colonne A -->
+                            <div class="space-y-3" id="comp-col-a">
+                               <div class="aspect-video bg-gray-900 rounded-lg flex items-center justify-center">
+                                   <img id="comp-image-a" src="" class="w-full h-full object-contain rounded-lg">
+                               </div>
+                               <div>
+                                   <h4 class="font-semibold text-gray-300 mb-2">Paramètres (A)</h4>
+                                   <ul id="comp-params-a" class="text-xs space-y-1 text-gray-400"></ul>
+                               </div>
+                            </div>
+                            <!-- Colonne B -->
+                            <div class="space-y-3" id="comp-col-b">
+                               <div class="aspect-video bg-gray-900 rounded-lg flex items-center justify-center">
+                                   <img id="comp-image-b" src="" class="w-full h-full object-contain rounded-lg">
+                               </div>
+                               <div>
+                                   <h4 class="font-semibold text-gray-300 mb-2">Paramètres (B)</h4>
+                                   <ul id="comp-params-b" class="text-xs space-y-1 text-gray-400"></ul>
+                               </div>
+                            </div>
+                        </div>
+                        <!-- Slider de comparaison -->
+                         <div id="exp-comparison-container" class="relative w-full mx-auto aspect-video overflow-hidden rounded-lg bg-black mt-6 comparison-container">
+                            <img id="exp-comp-img-a" src="" class="absolute top-0 left-0 w-full h-full object-contain">
+                            <div id="exp-comp-wrapper-b" class="absolute top-0 left-0 w-1/2 h-full overflow-hidden">
+                                <img id="exp-comp-img-b" src="" class="absolute top-0 left-0 w-full h-full object-contain" style="max-width: none; width: initial;">
+                            </div>
+                            <div id="exp-comparison-slider" class="comparison-slider"></div>
+                        </div>
+                    </div>
+
+
                     <div class="bg-gray-800 p-6 rounded-2xl shadow-lg">
                         <div class="flex justify-between items-center mb-4">
-                            <h3 class="text-xl font-semibold">Résultats de l'Expérience</h3>
-                            <div class="text-sm text-gray-400">
-                                <span id="results-count">0</span> / <span id="total-runs">0</span> combinaisons calculées
+                            <div>
+                               <h3 class="text-xl font-semibold">Résultats de l'expérience</h3>
+                               <p class="text-sm text-gray-400">Cliquez sur deux des cartes pour les comparer.</p>
+                            </div>
+                            <div class="text-sm text-gray-400 text-right">
+                                <span id="results-count">0</span> / <span id="total-runs">0</span> combinaisons<br>calculées
                             </div>
                         </div>
                         <div id="original-image-experiment-container" class="mb-6">

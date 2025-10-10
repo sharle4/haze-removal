@@ -9,6 +9,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let defaultConfig = null;
     let currentMode = 'single'; // 'single' ou 'experiment'
     let experimentParams = {};
+    let selectedForComparison = [];
 
     // --- Références aux éléments du DOM ---
     const dom = {
@@ -24,6 +25,7 @@ document.addEventListener('DOMContentLoaded', () => {
         singleRunView: document.getElementById('single-run-view'),
         experimentView: document.getElementById('experiment-view'),
 
+        // Vue "Analyse Unique"
         comparisonContainer: document.getElementById('comparison-container'),
         comparisonSlider: document.getElementById('comparison-slider'),
         originalImageComp: document.getElementById('original-image-comp'),
@@ -31,17 +33,32 @@ document.addEventListener('DOMContentLoaded', () => {
         resultImageComp: document.getElementById('result-image-comp'),
         intermediateResults: document.getElementById('intermediate-results'),
 
+        // Vue "Expérimentale"
         experimentGrid: document.getElementById('experiment-grid'),
         originalImageExp: document.getElementById('original-image-exp'),
         resultsCount: document.getElementById('results-count'),
         totalRuns: document.getElementById('total-runs'),
         
+        // Panneau de comparaison (Mode Expérimental)
+        expComparisonPanel: document.getElementById('experiment-comparison-panel'),
+        clearComparisonBtn: document.getElementById('clear-comparison-btn'),
+        compImageA: document.getElementById('comp-image-a'),
+        compParamsA: document.getElementById('comp-params-a'),
+        compImageB: document.getElementById('comp-image-b'),
+        compParamsB: document.getElementById('comp-params-b'),
+        expComparisonContainer: document.getElementById('exp-comparison-container'),
+        expCompImgA: document.getElementById('exp-comp-img-a'),
+        expCompImgB: document.getElementById('exp-comp-img-b'),
+        expCompWrapperB: document.getElementById('exp-comp-wrapper-b'),
+        expComparisonSlider: document.getElementById('exp-comparison-slider'),
+        
+        // Sélecteurs de mode et infos
         modeSingleBtn: document.getElementById('mode-single'),
         modeExperimentBtn: document.getElementById('mode-experiment'),
-        
         singleRunInfo: document.getElementById('single-run-info'),
         experimentRunInfo: document.getElementById('experiment-run-info'),
 
+        // Paramètres dynamiques
         dynamicParams: document.getElementById('dynamic-params'),
         dynamicParamsGf: document.getElementById('dynamic-params-gf'),
     };
@@ -109,6 +126,10 @@ document.addEventListener('DOMContentLoaded', () => {
         dom.experimentGrid.innerHTML = '';
         dom.resultsCount.textContent = '0';
         dom.totalRuns.textContent = '0';
+
+        selectedForComparison = [];
+        updateComparisonUI();
+
 
         if (eventSource) {
             eventSource.close();
@@ -314,6 +335,8 @@ document.addEventListener('DOMContentLoaded', () => {
         dom.experimentGrid.innerHTML = '';
         dom.resultsCount.textContent = '0';
         dom.totalRuns.textContent = '0';
+        selectedForComparison = [];
+        updateComparisonUI();
 
         addLog('Initialisation du traitement...');
 
@@ -439,25 +462,109 @@ document.addEventListener('DOMContentLoaded', () => {
 
     /**
      * Crée une carte de résultat pour le mode expérimental.
-     * @param {object} data - Les données du résultat (image, paramètres).
+     * @param {object} data - Les données du résultat (image, paramètres, index).
      */
     function createExperimentResultCard(data) {
         const card = document.createElement('div');
-        card.className = 'bg-gray-700/50 p-4 rounded-lg shadow-md flex flex-col gap-3';
+        card.className = 'result-card bg-gray-700/50 p-4 rounded-lg shadow-md flex flex-col gap-3 cursor-pointer transition-all duration-200 border-2 border-transparent';
+        card.dataset.runId = data.run_index;
+        card.dataset.imageData = data.image;
+        card.dataset.paramsData = JSON.stringify(data.params);
         
         const paramList = Object.entries(data.params)
             .map(([key, value]) => `<li><span class="font-semibold text-gray-300">${key.replace('_', ' ')}:</span> <span class="font-mono text-blue-400">${value}</span></li>`)
             .join('');
 
         card.innerHTML = `
-            <img src="${data.image}" class="w-full h-auto object-contain rounded-md bg-black">
-            <ul class="text-xs space-y-1 text-gray-400 mt-2">
+            <img src="${data.image}" class="w-full h-auto object-contain rounded-md bg-black pointer-events-none">
+            <ul class="text-xs space-y-1 text-gray-400 mt-2 pointer-events-none">
                 ${paramList}
             </ul>
         `;
+        
+        card.addEventListener('click', handleComparisonSelection);
         dom.experimentGrid.appendChild(card);
     }
     
+    // --- Logique de Comparaison (Mode Expérimental) ---
+
+    /**
+     * Gère la sélection/désélection d'une carte pour la comparaison.
+     * @param {MouseEvent} event - L'événement de clic.
+     */
+    function handleComparisonSelection(event) {
+        const card = event.currentTarget;
+        const runId = card.dataset.runId;
+
+        const isSelected = selectedForComparison.some(item => item.id === runId);
+
+        if (isSelected) {
+            selectedForComparison = selectedForComparison.filter(item => item.id !== runId);
+        } else {
+            if (selectedForComparison.length >= 2) {
+                selectedForComparison.shift();
+            }
+            selectedForComparison.push({
+                id: runId,
+                image: card.dataset.imageData,
+                params: JSON.parse(card.dataset.paramsData)
+            });
+        }
+        updateComparisonUI();
+    }
+
+    /**
+     * Met à jour toute l'interface de comparaison en fonction de l'état `selectedForComparison`.
+     */
+    function updateComparisonUI() {
+        const selectedIds = selectedForComparison.map(item => item.id);
+        document.querySelectorAll('.result-card').forEach(card => {
+            if (selectedIds.includes(card.dataset.runId)) {
+                card.classList.add('selected');
+            } else {
+                card.classList.remove('selected');
+            }
+        });
+
+        if (selectedForComparison.length === 2) {
+            const [itemA, itemB] = selectedForComparison;
+            
+            dom.compImageA.src = itemA.image;
+            dom.compParamsA.innerHTML = formatParamsToList(itemA.params);
+            dom.compImageB.src = itemB.image;
+            dom.compParamsB.innerHTML = formatParamsToList(itemB.params);
+
+            dom.expCompImgA.src = itemA.image;
+            dom.expCompImgB.src = itemB.image;
+
+            dom.expCompWrapperB.style.width = `50%`;
+            dom.expComparisonSlider.style.left = `50%`;
+
+            dom.expComparisonPanel.classList.remove('hidden');
+        } else {
+            dom.expComparisonPanel.classList.add('hidden');
+        }
+    }
+    
+    /**
+     * Formate un objet de paramètres en une chaîne de list items HTML.
+     * @param {object} params - L'objet de paramètres.
+     * @returns {string} La chaîne HTML.
+     */
+    function formatParamsToList(params) {
+        return Object.entries(params)
+            .map(([key, value]) => `<li><span class="font-semibold text-gray-300">${key.replace('_', ' ')}:</span> <span class="font-mono text-blue-400">${value}</span></li>`)
+            .join('');
+    }
+
+    /**
+     * Réinitialise la sélection de comparaison.
+     */
+    function clearComparison() {
+        selectedForComparison = [];
+        updateComparisonUI();
+    }
+
     // --- Initialisation et Écouteurs d'événements ---
 
     /**
@@ -547,19 +654,28 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     dom.processButton.addEventListener('click', startProcessing);
+    dom.clearComparisonBtn.addEventListener('click', clearComparison);
 
-    // --- Gestionnaire du slider de comparaison ---
-    let isDragging = false;
-    dom.comparisonSlider.addEventListener('mousedown', () => { isDragging = true; });
-    document.addEventListener('mouseup', () => { isDragging = false; });
-    document.addEventListener('mousemove', (e) => {
-        if (!isDragging) return;
-        const rect = dom.comparisonContainer.getBoundingClientRect();
-        const offsetX = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
-        const percentage = (offsetX / rect.width) * 100;
-        dom.resultWrapper.style.width = `${percentage}%`;
-        dom.comparisonSlider.style.left = `${percentage}%`;
-    });
+    // --- Gestionnaires des sliders de comparaison ---
+    function setupComparisonSlider(container, slider, wrapper) {
+        let isDragging = false;
+        slider.addEventListener('mousedown', () => { isDragging = true; });
+        document.addEventListener('mouseup', () => { isDragging = false; });
+        document.addEventListener('mousemove', (e) => {
+            if (!isDragging) return;
+            const rect = container.getBoundingClientRect();
+            // S'assure que le mouvement est contraint à l'intérieur du conteneur
+            const x = e.clientX - rect.left;
+            const offsetX = Math.max(0, Math.min(rect.width, x));
+            const percentage = (offsetX / rect.width) * 100;
+            wrapper.style.width = `${percentage}%`;
+            slider.style.left = `${percentage}%`;
+        });
+    }
+
+    setupComparisonSlider(dom.comparisonContainer, dom.comparisonSlider, dom.resultWrapper);
+    setupComparisonSlider(dom.expComparisonContainer, dom.expComparisonSlider, dom.expCompWrapperB);
+
 
     initialize();
 });

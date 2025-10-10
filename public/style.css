@@ -114,3 +114,18 @@ input[type=number] {
     transform: scale(1.1);
     color: white;
 }
+
+.result-card {
+    transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out, border-color 0.2s ease-in-out;
+}
+
+.result-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.2), 0 4px 6px -2px rgba(0, 0, 0, 0.1);
+}
+
+.result-card.selected {
+    border-color: #4299e1;
+    transform: translateY(-2px) scale(1.02);
+    box-shadow: 0 0 20px rgba(66, 153, 225, 0.5);
+}
