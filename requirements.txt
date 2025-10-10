@@ -8,3 +8,9 @@ imageio
 #Configuration and CLI
 PyYAML
 tqdm
+
+#Web API and Server
+fastapi
+uvicorn[standard]
+python-multipart
+sse-starlette
