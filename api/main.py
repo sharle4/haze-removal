@@ -125,6 +125,7 @@ async def process_image_endpoint(
     image: UploadFile = File(...),
     patch_size: int = Form(...),
     omega: float = Form(...),
+    atmospheric_light_percentile: float = Form(...),
     t0: float = Form(...),
     gf_radius: int = Form(...),
     gf_epsilon: float = Form(...)
@@ -143,7 +144,7 @@ async def process_image_endpoint(
         raise HTTPException(status_code=400, detail="Fichier image invalide.")
 
     form_data = {
-        "patch_size": patch_size, "omega": omega, "t0": t0,
+        "patch_size": patch_size, "omega": omega, "atmospheric_light_percentile": atmospheric_light_percentile, "t0": t0,
         "gf_radius": gf_radius, "gf_epsilon": gf_epsilon
     }
     config = get_config_from_form(form_data)
