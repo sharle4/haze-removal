@@ -17,27 +17,3 @@ dependencies = [
     "PyYAML>=6.0",
     "tqdm>=4.60.0",
 ]
-
-[project.optional-dependencies]
-test = [
-    "pytest>=7.0",
-    "pytest-cov",
-]
-dev = [
-    "ruff",
-    "black",
-]
-
-[tool.pytest.ini_options]
-minversion = "6.0"
-addopts = "-ra -q --cov=src/dehazing"
-testpaths = [
-    "tests",
-]
-
-[tool.ruff]
-line-length = 100
-target-version = "py38"
-
-[tool.ruff.lint]
-select = ["E", "F", "I"]
