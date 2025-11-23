@@ -176,7 +176,7 @@ def run_experiment(
             ref_image = None
             
     # Espace de recherche
-    omega_values = [round(x, 2) for x in np.arange(0.50, 1.01, 0.05)]
+    omega_values = [round(x, 2) for x in np.arange(0.60, 0.96, 0.05)]
     
     results = []
     img_result_dir = output_dir / image_path.stem
