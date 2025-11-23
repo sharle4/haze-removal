@@ -3,9 +3,10 @@ Utilitaires pour les E/S, la configuration et le traitement d'image de base.
 """
 import logging
 import os
-import yaml
-from typing import Dict, Any, Optional
+from typing import Any, Dict
+
 import numpy as np
+import yaml
 from PIL import Image
 
 logger = logging.getLogger(__name__)

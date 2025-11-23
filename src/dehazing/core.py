@@ -4,7 +4,7 @@ Implémentation de l'algorithme "Dark Channel Prior".
 
 import numpy as np
 import scipy.ndimage as ndimage
-from scipy.sparse import lil_matrix, identity
+from scipy.sparse import identity, lil_matrix
 from scipy.sparse.linalg import cg
 from tqdm import tqdm
 

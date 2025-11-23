@@ -2,11 +2,11 @@
 Module principal définissant la classe Dehazer, point d'entrée de la librairie.
 """
 import logging
-from typing import Dict, Any, Optional
+from typing import Any, Dict
+
 import numpy as np
 
-from . import core
-from . import utils
+from . import core, utils
 
 logger = logging.getLogger(__name__)
 
