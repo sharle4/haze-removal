@@ -3,8 +3,8 @@ Script d'évaluation expérimentale (Batch Processing).
 
 Ce script permet d'analyser la robustesse de l'algorithme en faisant varier
 le paramètre critique 'omega' sur une image donnée.
-Il calcule systématiquement les métriques (NR et FR si référence fournie),
-exporte les résultats dans un fichier CSV et génère des graphiques d'analyse.
+Il calcule systématiquement TOUTES les métriques (NR et FR),
+exporte les résultats dans un fichier CSV et génère une suite complète de graphiques.
 """
 
 import argparse
@@ -13,13 +13,16 @@ import sys
 from pathlib import Path
 from typing import Optional
 import copy
+import math
 
 import numpy as np
 import pandas as pd
+
 import matplotlib
-matplotlib.use('Agg') 
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import seaborn as sns
+
 from tqdm import tqdm
 
 sys.path.append(str(Path(__file__).resolve().parents[1] / 'src'))
@@ -30,91 +33,127 @@ from dehazing import metrics
 
 logger = logging.getLogger(__name__)
 
+def normalize_series(series):
+    """Normalise une série entre 0 et 1 pour le radar chart."""
+    return (series - series.min()) / (series.max() - series.min() + 1e-8)
+
+def plot_single_metric(df, x_col, y_col, ax, color, title, ylabel):
+    """Fonction utilitaire pour tracer une métrique unique."""
+    sns.lineplot(data=df, x=x_col, y=y_col, ax=ax, color=color, marker='o', linewidth=2)
+    ax.set_ylabel(ylabel, color=color, fontsize=10)
+    ax.tick_params(axis='y', labelcolor=color)
+    ax.set_title(title, fontsize=10)
+    ax.grid(True, alpha=0.3)
+
+def generate_radar_chart(df, output_dir):
+    """Génère un graphique radar pour comparer les profils à faible, moyen et fort Omega."""
+    # Sélection de 3 points représentatifs
+    omegas = sorted(df['omega'].unique())
+    indices = df[df['omega'].isin(omegas[-3:])].index
+    selected_rows = df.iloc[indices].copy()
+    
+    # Métriques à afficher sur le radar (toutes normalisées)
+    metrics_to_plot = ['hautiere_r', 'hautiere_sigma', 'colorfulness_out', 'dark_channel_residual']
+    if 'psnr' in df.columns:
+        metrics_to_plot += ['psnr', 'ssim', 'ciede2000']
+    
+    # Normalisation pour l'affichage (0-1)
+    df_norm = df.copy()
+    for m in metrics_to_plot:
+        if m in df_norm.columns:
+            df_norm[m] = normalize_series(df_norm[m])
+            
+    selected_norm = df_norm.iloc[indices]
+    
+    # Création du Radar
+    labels = [m.replace('hautiere_', '').replace('_out', '').upper() for m in metrics_to_plot]
+    num_vars = len(labels)
+    angles = [n / float(num_vars) * 2 * math.pi for n in range(num_vars)]
+    angles += angles[:1] # Fermer la boucle
+    
+    fig, ax = plt.subplots(figsize=(8, 8), subplot_kw=dict(polar=True))
+    
+    colors = ['tab:blue', 'tab:green', 'tab:red']
+    for idx, (_, row) in enumerate(selected_norm.iterrows()):
+        values = row[metrics_to_plot].tolist()
+        values += values[:1]
+        ax.plot(angles, values, linewidth=2, linestyle='solid', label=f"Omega={row['omega']:.2f}", color=colors[idx])
+        ax.fill(angles, values, color=colors[idx], alpha=0.1)
+        
+    ax.set_xticks(angles[:-1])
+    ax.set_xticklabels(labels)
+    plt.title("Profil de Performance Normalisé (Radar Chart)", y=1.05)
+    plt.legend(loc='upper right', bbox_to_anchor=(0.1, 0.1))
+    
+    plt.savefig(output_dir / "analysis_global_radar.png", dpi=300)
+    plt.close()
+
 def generate_plots(df: pd.DataFrame, output_dir: Path):
     """
-    Génère des graphiques pertinents pour l'analyse académique.
+    Génère une suite complète de graphiques académiques.
     """
     sns.set_theme(style="whitegrid")
     
-    # 1. Graphique Compromis No-Reference : Visibilité (r) vs Saturation (Sigma)
-    # C'est le graphique le plus important pour régler Omega.
-    fig, ax1 = plt.subplots(figsize=(10, 6))
-    
-    color_r = 'tab:blue'
-    ax1.set_xlabel('Omega (Force du débrumage)', fontsize=12)
-    ax1.set_ylabel('Gain de Visibilité (Hautière r)', color=color_r, fontsize=12)
-    sns.lineplot(data=df, x='omega', y='hautiere_r', ax=ax1, color=color_r, marker='o', linewidth=2, label='Visibilité (r)')
-    ax1.tick_params(axis='y', labelcolor=color_r)
-    ax1.grid(True, alpha=0.3)
-
-    # Axe secondaire pour Sigma (car l'échelle est différente, souvent très petite)
-    ax2 = ax1.twinx()
-    color_sigma = 'tab:red'
-    ax2.set_ylabel('Taux de Saturation (Sigma)', color=color_sigma, fontsize=12)
-    sns.lineplot(data=df, x='omega', y='hautiere_sigma', ax=ax2, color=color_sigma, marker='s', linestyle='--', linewidth=2, label='Saturation (Sigma)')
-    ax2.tick_params(axis='y', labelcolor=color_sigma)
-    ax2.grid(False)
-
-    plt.title('Impact de Omega : Compromis Visibilité vs Artefacts', fontsize=14)
-    fig.tight_layout()
-    plt.savefig(output_dir / "analysis_nr_tradeoff.png", dpi=300)
+    # 1. VISIBILITE (Hautière e & r)
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
+    plot_single_metric(df, 'omega', 'hautiere_e', ax1, 'tab:blue', 'Nombre de bords visibles (e)', 'NB Edges')
+    plot_single_metric(df, 'omega', 'hautiere_r', ax2, 'tab:cyan', 'Taux de restauration (r)', 'Ratio')
+    plt.suptitle("Analyse de la Visibilité (Hautière et al.)")
+    plt.tight_layout()
+    plt.savefig(output_dir / "analysis_visibility.png", dpi=300)
     plt.close()
 
-    # 2. Graphique Full-Reference : Fidélité (PSNR/SSIM) vs Omega
-    # Uniquement si une référence était fournie (colonne psnr existe)
+    # 2. ARTEFACTS & BRUME (Sigma & Dark Channel)
+    fig, ax1 = plt.subplots(figsize=(10, 6))
+    color_sig = 'tab:red'
+    ax1.set_xlabel('Omega')
+    ax1.set_ylabel('Saturation Sigma (%)', color=color_sig)
+    sns.lineplot(data=df, x='omega', y='hautiere_sigma', ax=ax1, color=color_sig, marker='o', label='Saturation (Sigma)')
+    ax1.tick_params(axis='y', labelcolor=color_sig)
+    
+    ax2 = ax1.twinx()
+    color_dc = 'tab:gray'
+    ax2.set_ylabel('Dark Channel Residual (Brume restante)', color=color_dc)
+    sns.lineplot(data=df, x='omega', y='dark_channel_residual', ax=ax2, color=color_dc, marker='s', linestyle='--', label='DC Residual')
+    ax2.tick_params(axis='y', labelcolor=color_dc)
+    
+    plt.title("Compromis : Saturation vs Suppression de Brume")
+    plt.tight_layout()
+    plt.savefig(output_dir / "analysis_artifacts.png", dpi=300)
+    plt.close()
+
+    # 3. ANALYSE COULEUR (Colorfulness)
+    # Comparaison In vs Out
+    plt.figure(figsize=(10, 6))
+    plt.plot(df['omega'], df['colorfulness_out'], label='Restored', color='tab:purple', marker='o')
+    plt.axhline(y=df['colorfulness_in'].iloc[0], color='gray', linestyle='--', label='Original Input')
+    plt.xlabel('Omega')
+    plt.ylabel('Score de Colorfulness')
+    plt.title("Impact sur la vivacité des couleurs")
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(output_dir / "analysis_color.png", dpi=300)
+    plt.close()
+
+    # 4. FIDELITE (Full Reference) - Seulement si dispo
     if 'psnr' in df.columns:
-        fig, ax1 = plt.subplots(figsize=(10, 6))
+        fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(8, 12), sharex=True)
         
-        color_psnr = 'tab:green'
-        ax1.set_xlabel('Omega', fontsize=12)
-        ax1.set_ylabel('PSNR (dB)', color=color_psnr, fontsize=12)
-        sns.lineplot(data=df, x='omega', y='psnr', ax=ax1, color=color_psnr, marker='o', label='PSNR')
-        ax1.tick_params(axis='y', labelcolor=color_psnr)
+        plot_single_metric(df, 'omega', 'psnr', ax1, 'tab:green', 'PSNR (dB)', 'dB')
+        plot_single_metric(df, 'omega', 'ssim', ax2, 'tab:orange', 'SSIM (Structure)', 'Index')
+        plot_single_metric(df, 'omega', 'ciede2000', ax3, 'tab:pink', 'Delta E (CIEDE2000 - Erreur Couleur)', 'Delta E')
         
-        ax2 = ax1.twinx()
-        color_ssim = 'tab:orange'
-        ax2.set_ylabel('SSIM', color=color_ssim, fontsize=12)
-        sns.lineplot(data=df, x='omega', y='ssim', ax=ax2, color=color_ssim, marker='x', linestyle='--', label='SSIM')
-        ax2.tick_params(axis='y', labelcolor=color_ssim)
-        
-        plt.title('Fidélité structurelle en fonction de la force du débrumage', fontsize=14)
-        fig.tight_layout()
-        plt.savefig(output_dir / "analysis_fr_fidelity.png", dpi=300)
+        ax3.set_xlabel('Omega')
+        plt.suptitle("Métriques Full-Reference (Fidélité)")
+        plt.tight_layout()
+        plt.savefig(output_dir / "analysis_fidelity_full.png", dpi=300)
         plt.close()
 
-    # 3. Graphique Avancé : Front de Pareto (Scatter plot)
-    # On veut maximiser r (Y) et minimiser Sigma (X). 
-    # Le meilleur point est en haut à gauche.
-    plt.figure(figsize=(8, 8))
-    scatter = sns.scatterplot(
-        data=df, 
-        x='hautiere_sigma', 
-        y='hautiere_r', 
-        hue='omega', 
-        palette='viridis', 
-        s=100,
-        edgecolor='k'
-    )
-    plt.xlabel('Saturation (Sigma) - À minimiser')
-    plt.ylabel('Visibilité (r) - À maximiser')
-    plt.title('Espace Performance : Visibilité vs Distorsion')
-    
-    # Annoter quelques points intéressants
-    for line in range(0, df.shape[0], max(1, df.shape[0]//5)): # Annoter 1 point sur 5
-        plt.text(
-            df.hautiere_sigma.iloc[line], 
-            df.hautiere_r.iloc[line]+0.01, 
-            f"ω={df.omega.iloc[line]:.2f}", 
-            horizontalalignment='left', 
-            size='small', 
-            color='black'
-        )
-        
-    plt.grid(True, linestyle='--', alpha=0.5)
-    plt.tight_layout()
-    plt.savefig(output_dir / "analysis_pareto.png", dpi=300)
-    plt.close()
-
+    # 5. RADAR CHART (Vue synthétique)
+    try:
+        generate_radar_chart(df, output_dir)
+    except Exception as e:
+        logger.warning(f"Impossible de générer le Radar Chart: {e}")
 
 def run_experiment(
     config_template: dict,
@@ -125,8 +164,6 @@ def run_experiment(
     """
     Exécute une batterie de tests en faisant varier le paramètre Omega.
     """
-    
-    # 1. Chargement des images
     logger.info(f"Chargement de l'image : {image_path}")
     hazy_image = read_image(str(image_path))
     
@@ -137,19 +174,16 @@ def run_experiment(
         if ref_image.shape != hazy_image.shape:
             logger.warning("Attention : Dimensions image/référence différentes ! Les métriques FR ne seront pas calculées.")
             ref_image = None
-                
-    # 2. Définition de l'espace de recherche (Parameter Space)
-    # On fait varier Omega de 0.50 à 1.0 par pas de 0.05
+            
+    # Espace de recherche
     omega_values = [round(x, 2) for x in np.arange(0.50, 1.01, 0.05)]
     
     results = []
-    
     img_result_dir = output_dir / image_path.stem
     img_result_dir.mkdir(parents=True, exist_ok=True)
 
     logger.info(f"Début de l'itération sur {len(omega_values)} valeurs de omega...")
 
-    # 3. Boucle expérimentale
     for omega in tqdm(omega_values, desc="Expérimentation"):
         current_config = copy.deepcopy(config_template)
         
@@ -165,7 +199,6 @@ def run_experiment(
             save_path = img_result_dir / filename
             save_image(restored_image, str(save_path))
             
-            # Calcul des métriques
             row = {
                 'filename': filename,
                 'omega': omega,
@@ -173,11 +206,11 @@ def run_experiment(
                 't0': current_config['algorithm'].get('t0', 0.1)
             }
             
-            # Métriques No-Reference (toujours calculées)
+            # Calcul NR Metrics
             nr_scores = metrics.compute_nr_metrics(hazy_image, restored_image)
             row.update(nr_scores)
             
-            # Métriques Full-Reference (si référence fournie)
+            # Calcul FR Metrics
             if ref_image is not None:
                 fr_scores = metrics.compute_fr_metrics(restored_image, ref_image)
                 row.update(fr_scores)
@@ -188,30 +221,21 @@ def run_experiment(
             logger.error(f"Echec pour omega={omega}: {e}")
             continue
 
-    # 4. Sauvegarde et Analyse
     if results:
         df = pd.DataFrame(results)
         
-        # Réorganisation et nettoyage des colonnes
-        cols = ['filename', 'omega', 'psnr', 'ssim', 'ciede2000', 'hautiere_r', 'hautiere_sigma', 'dark_channel_residual']
-        cols = [c for c in cols if c in df.columns] + [c for c in df.columns if c not in cols]
-        df = df[cols]
+        # Tri des colonnes
+        first_cols = ['filename', 'omega']
+        metrics_cols = [c for c in df.columns if c not in first_cols]
+        df = df[first_cols + metrics_cols]
         
         csv_path = img_result_dir / "metrics_report.csv"
         df.to_csv(csv_path, index=False, float_format='%.4f')
         logger.info(f"Rapport CSV généré : {csv_path}")
         
-        # Génération des graphiques
-        logger.info("Génération des graphiques d'analyse...")
+        logger.info("Génération des graphiques complets...")
         generate_plots(df, img_result_dir)
-        
-        # Résumé console
-        best_r = df.loc[df['hautiere_r'].idxmax()]
-        logger.info(f"-> Max Visibilité : Omega={best_r['omega']} (r={best_r['hautiere_r']:.3f}, sigma={best_r['hautiere_sigma']:.3f})")
-        
-        if 'psnr' in df.columns:
-            best_psnr = df.loc[df['psnr'].idxmax()]
-            logger.info(f"-> Max PSNR : Omega={best_psnr['omega']} (PSNR={best_psnr['psnr']:.2f}dB)")
+        logger.info("Terminé.")
 
 def main():
     parser = argparse.ArgumentParser(description="Analyse expérimentale : variation de paramètres.")
