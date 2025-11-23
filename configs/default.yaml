@@ -1,21 +1,28 @@
 # Configuration par défaut pour le projet haze-removal
 
 algorithm:
-  patch_size: 7 # Taille du patch (doit être impair)
-  omega: 0.85 # Contrôle la quantité de brume à enlever
+  patch_size: 15        # Taille du patch (doit être impair)
+  omega: 0.95           # Quantité de brume à enlever (0.95 standard)
   atmospheric_light_percentile: 0.001 # 0.1% des pixels les plus brillants
-  t0: 0.1 # Empêche la transmission d'être trop faible
+  t0: 0.1               # Borne inf de transmission
+
+# NOUVEAU : Paramètres pour la robustesse (Sky Detection)
+sky_detection:
+  enabled: true
+  intensity_threshold: 0.8  # Seuil de luminosité (0-1) pour considérer une zone comme potentiellement ciel
+  gradient_threshold: 0.1   # Seuil de gradient (plus c'est bas, plus la zone doit être lisse)
+  correction_strength: 0.95 # Valeur de transmission forcée dans le ciel (1.0 = pas de dehazing)
 
 refinement:
   method: "guided_filter" # Méthode de raffinement ("guided_filter", "soft_matting" ou "all")
   
   guided_filter:
-    radius: 15 # Rayon du filtre guidé (plus il est grand, plus le lissage est fort)
-    epsilon: 1.0e-3 # Paramètre de régularisation (petite valeur pour éviter de trop lisser les contours)
+    radius: 60          # Rayon du filtre guidé (plus il est grand, plus le lissage est fort)
+    epsilon: 1.0e-4     # Paramètre de régularisation (petite valeur pour éviter de trop lisser les contours)
 
   soft_matting:
-    lambda: 0.001 # Paramètre de régularisation pour le soft matting (plus il est petit, plus le lissage est fort)
-    epsilon: 1e-7 # Régularisateur pour l'inversion de la matrice de covariance
+    lambda: 0.0001 # Paramètre de régularisation pour le soft matting (plus il est petit, plus le lissage est fort)
+    epsilon: 1.0e-7 # Régularisateur pour l'inversion de la matrice de covariance
     win_size: 3 # Taille de la fenêtre (doit être impair)
 
 logging:
