@@ -19,27 +19,23 @@ source venv/Scripts/activate
 source venv/bin/activate
 
 #3. Installation des dépendances
-pip install -r requirements.txt
+pip install -e .
 ```
 
 
 ## Utilisation du projet :
 
-### Batterie d'expériences :
-1. Modifier le fichier `configs/experiment_default.yaml` qui définit les paramètres de l'expérience
-2. Lancer le script `run_batch.py`
-```
-python scripts/run_batch.py --exp-config configs/experiment_default.yaml --output-dir experiments/
-```
-Ce script va créer un dossier dans `experiments/` contenant les résultats pour chaque combinaison de paramètres.
-
 ### Expérience unique :
 ```
-python scripts/run_single.py --config configs/default.yaml --image-path images/city_haze.jpg --output-dir results/city_haze
+python scripts/run_single.py --config configs/default.yaml --image-path city_haze.jpg --output-dir city_haze
 ```
 
-### Interface web : 
-L'interface web permet de faire plus facilement varier les paramètres et d'observer et comparer aisément les réssultats.
+### Expérience multiple :
 ```
-python api/main.py
+python scripts/run_batch.py --config configs/default.yaml --image-path mountains_image.jpg --ref clear_mountains_image.jpg --output-dir moutains
+```
+
+### Traitement automatique :
+```
+$ python scripts/run_auto.py --config configs/default.yaml --image-path satellite.png
 ```
