@@ -1,15 +1,5 @@
-#Core numerical and image processing libraries
-numpy
-scipy
-Pillow
-matplotlib
-
-#Configuration and CLI
-PyYAML
-tqdm
-
-#Web API and Server
-fastapi
-uvicorn[standard]
-python-multipart
-sse-starlette
+numpy>=1.20.0
+scipy>=1.7.0
+Pillow>=9.0.0
+PyYAML>=6.0
+tqdm>=4.60.0
