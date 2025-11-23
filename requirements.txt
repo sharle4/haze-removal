@@ -3,7 +3,6 @@ numpy
 scipy
 Pillow
 matplotlib
-imageio
 
 #Configuration and CLI
 PyYAML

@@ -80,7 +80,12 @@
                 <!-- Vue: Analyse Unique -->
                 <div id="single-run-view" class="hidden space-y-8">
                     <div class="bg-gray-800 p-6 rounded-2xl shadow-lg">
-                        <h3 class="text-xl font-semibold mb-4 text-center">Comparaison Avant / Après</h3>
+                        <div class="flex justify-between items-center mb-4">
+                            <h3 class="text-xl font-semibold">Comparaison Avant / Après</h3>
+                            <button id="single-fullscreen-btn" class="fullscreen-btn" title="Passer en plein écran">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
+                            </button>
+                        </div>
                         <div id="comparison-container" class="relative w-full mx-auto aspect-video overflow-hidden rounded-lg bg-gray-900 comparison-container">
                             <img id="original-image-comp" src="" class="absolute top-0 left-0 w-full h-full object-contain">
                             <div id="result-wrapper" class="absolute top-0 left-0 w-1/2 h-full overflow-hidden">
@@ -100,50 +105,66 @@
                 <!-- Vue: Mode Expérimental -->
                 <div id="experiment-view" class="hidden space-y-8">
                     
-                    <!-- Panneau de comparaison -->
-                    <div id="experiment-comparison-panel" class="hidden bg-gray-800 p-6 rounded-2xl shadow-lg">
+                    <!-- Visionneur d'image unique -->
+                    <div id="experiment-viewer-panel" class="hidden bg-gray-800 p-6 rounded-2xl shadow-lg">
                         <div class="flex justify-between items-center mb-4">
-                            <h3 class="text-xl font-semibold">Comparaison des résultats sélectionnés</h3>
-                             <button id="clear-comparison-btn" class="text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 font-semibold py-1 px-3 rounded-md transition-colors">Vider la sélection</button>
-                        </div>
-                        <div class="grid grid-cols-2 gap-6 items-start">
-                            <!-- Colonne A -->
-                            <div class="space-y-3" id="comp-col-a">
-                               <div class="aspect-video bg-gray-900 rounded-lg flex items-center justify-center">
-                                   <img id="comp-image-a" src="" class="w-full h-full object-contain rounded-lg">
-                               </div>
-                               <div>
-                                   <h4 class="font-semibold text-gray-300 mb-2">Paramètres (A)</h4>
-                                   <ul id="comp-params-a" class="text-xs space-y-1 text-gray-400"></ul>
-                               </div>
-                            </div>
-                            <!-- Colonne B -->
-                            <div class="space-y-3" id="comp-col-b">
-                               <div class="aspect-video bg-gray-900 rounded-lg flex items-center justify-center">
-                                   <img id="comp-image-b" src="" class="w-full h-full object-contain rounded-lg">
-                               </div>
-                               <div>
-                                   <h4 class="font-semibold text-gray-300 mb-2">Paramètres (B)</h4>
-                                   <ul id="comp-params-b" class="text-xs space-y-1 text-gray-400"></ul>
-                               </div>
+                            <h3 class="text-xl font-semibold">Visionneur de Résultat</h3>
+                            <div class="flex items-center gap-4">
+                                <button id="viewer-fullscreen-btn" class="fullscreen-btn" title="Passer en plein écran">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
+                                </button>
+                                <button id="clear-viewer-btn" class="text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 font-semibold py-1 px-3 rounded-md transition-colors">Vider la sélection</button>
                             </div>
                         </div>
-                        <!-- Slider de comparaison -->
-                         <div id="exp-comparison-container" class="relative w-full mx-auto aspect-video overflow-hidden rounded-lg bg-black mt-6 comparison-container">
-                            <img id="exp-comp-img-a" src="" class="absolute top-0 left-0 w-full h-full object-contain">
-                            <div id="exp-comp-wrapper-b" class="absolute top-0 left-0 w-1/2 h-full overflow-hidden">
-                                <img id="exp-comp-img-b" src="" class="absolute top-0 left-0 w-full h-full object-contain" style="max-width: none; width: initial;">
+                        <div id="viewer-content" class="grid grid-cols-1 md:grid-cols-3 gap-6 items-start">
+                            <div class="md:col-span-2 aspect-video bg-gray-900 rounded-lg flex items-center justify-center">
+                                <img id="viewer-image" src="" class="w-full h-full object-contain rounded-lg">
                             </div>
-                            <div id="exp-comparison-slider" class="comparison-slider"></div>
+                            <div class="md:col-span-1">
+                                <h4 class="font-semibold text-gray-300 mb-2">Paramètres</h4>
+                                <ul id="viewer-params" class="text-xs space-y-1 text-gray-400"></ul>
+                            </div>
                         </div>
                     </div>
 
+                    <!-- Panneau de comparaison -->
+                    <div id="experiment-comparison-panel" class="hidden bg-gray-800 p-6 rounded-2xl shadow-lg">
+                        <div class="flex justify-between items-center mb-4">
+                             <h3 class="text-xl font-semibold">Comparaison des Résultats</h3>
+                             <div class="flex items-center gap-4">
+                                 <button id="comparator-fullscreen-btn" class="fullscreen-btn" title="Passer en plein écran">
+                                     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
+                                 </button>
+                                 <button id="clear-comparison-btn" class="text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 font-semibold py-1 px-3 rounded-md transition-colors">Vider la sélection</button>
+                             </div>
+                        </div>
+                        <div id="comparator-content">
+                            <div class="grid grid-cols-2 gap-6 items-start">
+                                <div class="space-y-3" id="comp-col-a">
+                                   <div class="aspect-video bg-gray-900 rounded-lg flex items-center justify-center"><img id="comp-image-a" src="" class="w-full h-full object-contain rounded-lg"></div>
+                                   <div><h4 class="font-semibold text-gray-300 mb-2">Paramètres (A)</h4><ul id="comp-params-a" class="text-xs space-y-1 text-gray-400"></ul></div>
+                                </div>
+                                <div class="space-y-3" id="comp-col-b">
+                                   <div class="aspect-video bg-gray-900 rounded-lg flex items-center justify-center"><img id="comp-image-b" src="" class="w-full h-full object-contain rounded-lg"></div>
+                                   <div><h4 class="font-semibold text-gray-300 mb-2">Paramètres (B)</h4><ul id="comp-params-b" class="text-xs space-y-1 text-gray-400"></ul></div>
+                                </div>
+                            </div>
+                            <div id="exp-comparison-container" class="relative w-full mx-auto aspect-video overflow-hidden rounded-lg bg-black mt-6 comparison-container">
+                                <img id="exp-comp-img-a" src="" class="absolute top-0 left-0 w-full h-full object-contain">
+                                <div id="exp-comp-wrapper-b" class="absolute top-0 left-0 w-1/2 h-full overflow-hidden">
+                                    <img id="exp-comp-img-b" src="" class="absolute top-0 left-0 w-full h-full object-contain" style="max-width: none; width: initial;">
+                                </div>
+                                <div id="exp-comparison-slider" class="comparison-slider"></div>
+                            </div>
+                        </div>
+                    </div>
 
+                    <!-- Grille de résultats -->
                     <div class="bg-gray-800 p-6 rounded-2xl shadow-lg">
                         <div class="flex justify-between items-center mb-4">
                             <div>
-                               <h3 class="text-xl font-semibold">Résultats de l'expérience</h3>
-                               <p class="text-sm text-gray-400">Cliquez sur deux des cartes pour les comparer.</p>
+                               <h3 class="text-xl font-semibold">Tous les Résultats</h3>
+                               <p class="text-sm text-gray-400">Cliquez sur une ou deux cartes pour inspecter/comparer.</p>
                             </div>
                             <div class="text-sm text-gray-400 text-right">
                                 <span id="results-count">0</span> / <span id="total-runs">0</span> combinaisons<br>calculées
@@ -182,6 +203,19 @@
              </div>
         </footer>
     </div>
+
+    <!-- MODAL PLEIN ÉCRAN -->
+    <div id="fullscreen-modal" class="hidden">
+        <div id="fullscreen-overlay" class="fixed inset-0 bg-black/90 cursor-zoom-out"></div>
+        <div id="fullscreen-content" class="relative z-10 w-full h-full p-4 md:p-8 lg:p-12">
+            <!-- Le contenu du visionneur/comparateur sera cloné ici -->
+        </div>
+        <button id="fullscreen-close-btn" class="fixed top-5 right-5 z-20 text-white hover:text-blue-400 transition-colors" title="Fermer (Échap)">
+            <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+    </div>
+
     <script src="./script.js"></script>
 </body>
 </html>
+
