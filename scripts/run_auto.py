@@ -16,7 +16,15 @@ from pathlib import Path
 from typing import Dict, Tuple
 
 import numpy as np
+import pandas as pd
 from scipy.optimize import minimize_scalar
+
+# --- VISUALISATION ---
+import matplotlib
+matplotlib.use('Agg') # Backend non-interactif
+import matplotlib.pyplot as plt
+import seaborn as sns
+# ---------------------
 
 # Ajout du chemin src au path
 sys.path.append(str(Path(__file__).resolve().parents[1] / 'src'))
@@ -32,11 +40,15 @@ class AutoTuner:
         self.base_config = config
         self.image = image
         # Cache pour éviter de recalculer si l'optimiseur repasse par le même point
+        # Stores: omega -> loss (where loss = -score)
         self.history = {} 
+        self.iteration_order = [] # Pour garder l'ordre temporel des essais
 
     def objective_function(self, omega: float) -> float:
         """
-        retourne -(r - lambda * sigma)
+        Fonction objectif à MINIMISER.
+        On veut MAXIMISER : Visibilité (r) - Pénalité * Saturation (Sigma)
+        Donc on retourne : -(r - lambda * sigma)
         """
         # Arrondi pour éviter les recalculs inutiles sur des float trop proches
         omega = round(float(omega), 4)
@@ -50,8 +62,7 @@ class AutoTuner:
             current_config['algorithm'] = {}
         current_config['algorithm']['omega'] = omega
         
-        # Inférence rapide (on peut réduire la taille de l'image pour l'optimisation pour aller + vite)
-        # Ici on garde la taille pleine pour la précision académique
+        # Inférence rapide
         dehazer = Dehazer(current_config)
         restored = dehazer.infer(self.image)
         
@@ -76,9 +87,72 @@ class AutoTuner:
         loss = -score
         
         self.history[omega] = loss
+        self.iteration_order.append(omega)
         logger.debug(f"Eval omega={omega:.4f} -> r={r:.4f}, sigma={sigma:.4f} => Score={score:.4f}")
         
         return loss
+
+    def plot_optimization_landscape(self, output_dir: Path, best_omega: float):
+        """
+        Génère un graphique montrant les points explorés et le score associé.
+        Permet de visualiser la convexité (ou non) de la fonction et la convergence.
+        """
+        if not self.history:
+            return
+
+        # 1. Extraction des données
+        data = []
+        for i, omega in enumerate(self.iteration_order):
+            loss = self.history[omega]
+            score = -loss
+            data.append({'Iteration': i+1, 'Omega': omega, 'Score': score})
+        
+        df = pd.DataFrame(data)
+        
+        # 2. Création du Graphique
+        sns.set_theme(style="whitegrid")
+        plt.figure(figsize=(10, 6))
+        
+        # Tracer les points explorés (Scatter)
+        # On colore par ordre d'itération pour voir le cheminement
+        scatter = plt.scatter(
+            df['Omega'], 
+            df['Score'], 
+            c=df['Iteration'], 
+            cmap='viridis', 
+            s=100, 
+            edgecolor='k',
+            zorder=2,
+            label='Points évalués'
+        )
+        plt.colorbar(scatter, label='Ordre des itérations')
+        
+        # Tracer une courbe interpolée (ou triée) pour suggérer la forme de la fonction
+        df_sorted = df.sort_values(by='Omega')
+        plt.plot(df_sorted['Omega'], df_sorted['Score'], 'k--', alpha=0.3, zorder=1, label='Interpolation')
+        
+        # Marquer le meilleur point
+        best_score = -self.history[best_omega]
+        plt.scatter(
+            [best_omega], 
+            [best_score], 
+            color='red', 
+            s=200, 
+            marker='*', 
+            edgecolor='white', 
+            zorder=3,
+            label=f'Optimum (ω={best_omega:.2f})'
+        )
+        
+        plt.title('Paysage d\'Optimisation : Score vs Omega', fontsize=14)
+        plt.xlabel('Omega (Force du débrumage)', fontsize=12)
+        plt.ylabel('Score Composite (Visibilité - Pénalité)', fontsize=12)
+        plt.legend(loc='lower right')
+        
+        output_path = output_dir / "optimization_landscape.png"
+        plt.savefig(output_path, dpi=300)
+        plt.close()
+        logger.info(f"Graphique d'optimisation généré : {output_path}")
 
     def optimize(self) -> Tuple[float, float]:
         """
@@ -94,7 +168,7 @@ class AutoTuner:
             self.objective_function, 
             bounds=(0.5, 1.0), 
             method='bounded',
-            options={'xatol': 1e-3, 'maxiter': 15} # Tolérance et itérations max pour la rapidité
+            options={'xatol': 1e-3, 'maxiter': 20} 
         )
         
         best_omega = result.x
@@ -134,7 +208,10 @@ def main():
     tuner = AutoTuner(config, hazy_image)
     best_omega, best_score = tuner.optimize()
     
-    # 3. Génération du résultat final avec le meilleur paramètre
+    # 3. Visualisation du processus d'optimisation
+    tuner.plot_optimization_landscape(output_dir, best_omega)
+    
+    # 4. Génération du résultat final avec le meilleur paramètre
     logger.info(f"Génération de l'image finale avec Omega={best_omega:.4f}...")
     
     final_config = config.copy()
@@ -143,12 +220,12 @@ def main():
     dehazer = Dehazer(final_config)
     final_image = dehazer.infer(hazy_image)
     
-    # 4. Sauvegarde
+    # 5. Sauvegarde
     filename = f"{image_path.stem}_auto_omega_{best_omega:.2f}.png"
     save_path = output_dir / filename
     save_image(final_image, str(save_path))
     
-    # 5. Rapport rapide
+    # 6. Rapport rapide
     metrics_final = metrics.calculate_hauti_indicators(hazy_image, final_image)
     print("\n" + "="*50)
     print(f"RÉSULTAT DE L'OPTIMISATION POUR {image_path.name}")
