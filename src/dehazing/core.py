@@ -7,6 +7,7 @@ import scipy.ndimage as ndimage
 from scipy.sparse import identity, lil_matrix
 from scipy.sparse.linalg import cg
 from tqdm import tqdm
+import cv2
 
 
 def get_dark_channel(image: np.ndarray, patch_size: int) -> np.ndarray:
@@ -283,3 +284,110 @@ def recover_scene_radiance(hazy_image: np.ndarray, atmospheric_light: np.ndarray
     scene_radiance = (hazy_image - atmospheric_light) / transmission_clamped + atmospheric_light
     
     return np.clip(scene_radiance, 0, 1)
+
+
+def ransac(patch, iterations, threshold, eps_norm=1e-5, max_trials=20):
+    max_inliers = 0
+    best_line = None
+
+    n = patch.shape[0]
+    if n < 2:
+        return None
+
+    # option : retirer les doublons rapides
+    uniq = np.unique(patch, axis=0)
+    if uniq.shape[0] < 2:
+        return None  # pas de direction définissable
+
+    for _ in range(iterations):
+        # tenter plusieurs fois pour éviter d'avoir p1==p2
+        for trial in range(max_trials):
+            i, j = np.random.choice(n, 2, replace=False)
+            p1, p2 = patch[i], patch[j]
+
+            D = p2 - p1
+            normD = np.linalg.norm(D)
+            if normD > eps_norm:
+                break
+        else:
+            # n'a pas trouvé de paire utile dans max_trials
+            continue
+
+        V = p1
+        D = D / normD
+
+        diffs = patch - V
+        dists = np.linalg.norm(np.cross(diffs, D), axis=1)
+        inliers = dists < threshold
+        num_inliers = np.sum(inliers)
+
+        if num_inliers > max_inliers:
+            max_inliers = num_inliers
+            best_line = (V, D)
+
+    return best_line
+
+
+def dehaze_fattal_lpc_ransac_pca(hazy_img, window_size, t0=0.05, r_guided=10, eps_guided=1e-4):
+    # (Étape 1 et 2: Préparation et A_RANSAC - les mêmes que précédemment) 
+    I = hazy_img.astype(np.float32) / 255.0
+    H, W, C = I.shape
+    
+    # Utilisation d'une estimation A simplifiée pour ne pas surcharger le code si A_RANSAC est déjà utilisée
+    J_dark = get_dark_channel(hazy_img, size=5)
+    A = np.array([J_dark.max(), J_dark.max(), J_dark.max()])
+    A = A / 255.0 
+
+    t_map = np.ones((H, W), dtype=np.float32)
+    pad_size = window_size // 2
+    I_padded = cv2.copyMakeBorder(I, pad_size, pad_size, pad_size, pad_size, cv2.BORDER_REFLECT)
+    
+    # 3. Estimation de la Transmission t(x) par LPC et Projection
+    for i in range(H):
+        for j in range(W):
+            patch = I_padded[i:i + window_size, j:j + window_size, :]
+
+            # flatten pour ransac (n_points, 3)
+            patch_vec = patch.reshape(-1, C)
+
+            # ransac retourne (V_point, D_direction) ou None
+            res = ransac(patch_vec, iterations=20, threshold=0.01)
+            print(f'Patch ({i}, {j}) : point {res[0]}, direction {res[1]}')
+            if res is None:
+                # fallback : direction via PCA (SVD)
+                centered = patch_vec - patch_vec.mean(axis=0)
+                U, S, VT = np.linalg.svd(centered, full_matrices=False)
+                D = VT[0]  # direction principale (3,)
+                # choisir un point de référence V (moyenne ou pixel le plus projeté)
+                V = patch_vec.mean(axis=0)
+            else:
+                V, D = res  # V shape (3,), D shape (3,)
+
+            # Calcul des projections pour l'estimation de t
+            centered_patch_data = patch_vec - A.reshape(1, C)
+            # projeter SUR la direction D (vecteur 3,) — PAS sur V
+            all_projections = np.dot(centered_patch_data, D)
+            max_projection = np.max(all_projections)
+            
+            # Utiliser un facteur omega pour accentuer l'effet
+            omega = 1
+            t_estimate = 1.0 - np.clip(max_projection * omega, 0.0, 1.0) 
+            t_map[i, j] = np.maximum(t_estimate, t0)
+
+    
+
+    # 4. Raffinement (Guided Filter) et 5. Restauration
+    I_gray = cv2.cvtColor(hazy_img, cv2.COLOR_BGR2GRAY) / 255.0
+    t_refined = refine_transmission_guided_filter(t_map, I_gray, r_guided, eps_guided)
+    t_refined = np.maximum(t_refined, t0) 
+
+    A_expanded = A[np.newaxis, np.newaxis, :] 
+    t_3channels = np.stack([t_refined, t_refined, t_refined], axis=2)
+    t_3channels[t_3channels == 0] = t0 
+
+    J = (I - A_expanded) / t_3channels + A_expanded
+    J = np.clip(J, 0, 1)
+
+    dehazed_img = (J * 255).astype(np.uint8)
+    
+    return dehazed_img, t_refined, A
