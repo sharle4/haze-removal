@@ -1,11 +1,6 @@
 """
-Script de traitement par lot avec Auto-Tuning individuel (Batch Optimization).
-
-Ce script parcourt un dossier d'images, calcule le paramètre Omega optimal pour 
-CHAQUE image individuellement, génère le résultat et compile un rapport statistique complet.
-
-Usage:
-    python scripts/run_folder.py --config configs/default.yaml --input-dir images/dataset --output-dir results/batch_experiment
+Script de traitement par lot (Batch) comparatif & Analytique.
+Compare les méthodes He et Fattal sur un dossier d'images brumeuses.
 """
 
 import argparse
@@ -13,14 +8,17 @@ import logging
 import sys
 import time
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
-
-import numpy as np
 import pandas as pd
-from scipy.optimize import minimize_scalar
 from tqdm import tqdm
+import numpy as np
+import cv2
+import math
 
-# Ajout du chemin src au path pour les imports
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+import seaborn as sns
+
 sys.path.append(str(Path(__file__).resolve().parents[1] / 'src'))
 
 from dehazing import Dehazer
@@ -29,197 +27,270 @@ from dehazing import metrics
 
 logger = logging.getLogger(__name__)
 
-class RobustOptimizer:
+def normalize_column(series):
+    return (series - series.min()) / (series.max() - series.min() + 1e-8)
+
+def generate_comprehensive_analytics(df: pd.DataFrame, output_dir: Path):
     """
-    Classe d'optimisation encapsulée. 
-    Cherche le meilleur compromis Visibilité/Artefacts pour une image donnée.
+    Génère une suite complète de graphiques pour l'analyse.
     """
-    def __init__(self, base_config: dict, image: np.ndarray):
-        self.base_config = base_config
-        self.image = image
-        self.history = {}
-        
-        # Statistiques de référence pour éviter les dérives
-        self.orig_mean_intensity = np.mean(image)
+    analytics_dir = output_dir / "Analytics_Graphs"
+    analytics_dir.mkdir(exist_ok=True)
+    
+    sns.set_theme(style="whitegrid", context="paper")
+    
+    metrics_found = set()
+    for col in df.columns:
+        if col.startswith('He_'):
+            metric_name = col[3:]
+            if f'Fattal_{metric_name}' in df.columns:
+                metrics_found.add(metric_name)
+    
+    logger.info(f"Génération des graphiques pour les métriques : {metrics_found}")
 
-    def _calculate_cost(self, restored: np.ndarray, original: np.ndarray) -> float:
-        """
-        Fonction de coût composite (Objectif à minimiser).
-        Score = - (Gain_Visibilité - Pénalité_Saturation - Pénalité_Assombrissement)
-        """
-        # 1. Gain de visibilité (Hautière r)
-        h_metrics = metrics.calculate_hauti_indicators(original, restored)
-        r = h_metrics['hautiere_r']
+    for metric in metrics_found:
+        plt.figure(figsize=(7, 7))
         
-        # Plafonnement académique du gain : au-delà de 3.0, on considère que c'est du bruit
-        gain_score = min(r, 3.0)
+        x_data = df[f'He_{metric}']
+        y_data = df[f'Fattal_{metric}']
         
-        # 2. Pénalité : Soft Saturation (Pixels brûlés ou bouchés)
-        # On pénalise si > 2% de l'image est dans les extrêmes (0.05 - 0.95)
-        flat_rest = restored.flatten()
-        soft_saturation = (np.count_nonzero(flat_rest < 0.05) + np.count_nonzero(flat_rest > 0.95)) / flat_rest.size
+        sns.scatterplot(x=x_data, y=y_data, alpha=0.7, s=60, edgecolor='k')
         
-        saturation_penalty = 0.0
-        if soft_saturation > 0.02:
-            saturation_penalty = np.exp(20.0 * (soft_saturation - 0.02)) - 1.0
+        min_val = min(x_data.min(), y_data.min())
+        max_val = max(x_data.max(), y_data.max())
+        plt.plot([min_val, max_val], [min_val, max_val], 'r--', alpha=0.5, label='Égalité')
+        
+        plt.fill_between([min_val, max_val], [min_val, max_val], max_val, color='green', alpha=0.05, label='Fattal meilleur (si >)')
+        plt.fill_between([min_val, max_val], min_val, [min_val, max_val], color='blue', alpha=0.05, label='He meilleur (si >)')
+        
+        plt.title(f"Comparaison Paire à Paire : {metric.upper()}")
+        plt.xlabel(f"Score He et al. ({metric})")
+        plt.ylabel(f"Score Fattal ({metric})")
+        plt.legend()
+        plt.tight_layout()
+        plt.savefig(analytics_dir / f"Scatter_{metric}.png", dpi=300)
+        plt.close()
 
-        # 3. Pénalité : Préservation de la luminosité moyenne
-        # On interdit une perte de luminosité globale > 40%
-        rest_mean = np.mean(restored)
-        brightness_ratio = rest_mean / (self.orig_mean_intensity + 1e-6)
+    long_data = []
+    for _, row in df.iterrows():
+        for metric in metrics_found:
+            long_data.append({'Method': 'He et al.', 'Metric': metric, 'Value': row[f'He_{metric}']})
+            long_data.append({'Method': 'Fattal', 'Metric': metric, 'Value': row[f'Fattal_{metric}']})
+    
+    df_long = pd.DataFrame(long_data)
+    
+    for metric in metrics_found:
+        plt.figure(figsize=(6, 5))
+        subset = df_long[df_long['Metric'] == metric]
         
-        darkness_penalty = 0.0
-        if brightness_ratio < 0.60:
-            darkness_penalty = np.exp(10.0 * (0.60 - brightness_ratio)) - 1.0
-
-        # Score final (Pondération empirique pour la robustesse)
-        score = gain_score - (1.5 * saturation_penalty) - (2.0 * darkness_penalty)
-        return -score
-
-    def objective(self, omega: float) -> float:
-        """Fonction appelée par le minimiseur."""
-        omega = round(float(omega), 4)
-        if omega in self.history:
-            return self.history[omega]
-
-        # Configuration temporaire
-        current_config = self.base_config.copy()
-        if 'algorithm' not in current_config:
-            current_config['algorithm'] = {}
-        current_config['algorithm']['omega'] = omega
+        sns.boxplot(data=subset, x='Method', y='Value', palette=['tab:blue', 'tab:green'], width=0.5)
+        sns.swarmplot(data=subset, x='Method', y='Value', color='k', alpha=0.3, size=4)
         
-        # Inférence
+        plt.title(f"Distribution : {metric.upper()}")
+        plt.ylabel("Valeur")
+        plt.xlabel("")
+        plt.tight_layout()
+        plt.savefig(analytics_dir / f"Boxplot_{metric}.png", dpi=300)
+        plt.close()
+
+    if 'He_time' in df.columns and 'Fattal_time' in df.columns:
+        plt.figure(figsize=(8, 5))
+        df_time = pd.DataFrame({
+            'He et al.': df['He_time'],
+            'Fattal': df['Fattal_time']
+        })
+        df_time_melted = df_time.melt(var_name='Method', value_name='Seconds')
+        
+        sns.barplot(data=df_time_melted, x='Method', y='Seconds', capsize=.1, palette='pastel', errorbar='sd')
+        plt.title("Temps d'Exécution Moyen (avec écart-type)")
+        plt.ylabel("Temps (s)")
+        plt.tight_layout()
+        plt.savefig(analytics_dir / "Time_Comparison.png", dpi=300)
+        plt.close()
+
+    if 'psnr' in metrics_found and 'ssim' in metrics_found:
         try:
-            dehazer = Dehazer(current_config)
-            # Note: Le Dehazer utilise la config, donc Sky Detection est actif si activé dans le YAML
-            restored = dehazer.infer(self.image)
-            loss = self._calculate_cost(restored, self.image)
+            radar_metrics = ['psnr', 'ssim', 'hautiere_r', 'colorfulness_out']
+            radar_metrics = [m for m in radar_metrics if m in metrics_found]
+            
+            if len(radar_metrics) >= 3:
+                means_he = []
+                means_fattal = []
+                
+                for m in radar_metrics:
+                    all_vals = pd.concat([df[f'He_{m}'], df[f'Fattal_{m}']])
+                    min_v, max_v = all_vals.min(), all_vals.max()
+                    
+                    mean_he = (df[f'He_{m}'].mean() - min_v) / (max_v - min_v)
+                    mean_fattal = (df[f'Fattal_{m}'].mean() - min_v) / (max_v - min_v)
+                    
+                    means_he.append(mean_he)
+                    means_fattal.append(mean_fattal)
+                
+                labels = [m.upper() for m in radar_metrics]
+                num_vars = len(labels)
+                angles = [n / float(num_vars) * 2 * math.pi for n in range(num_vars)]
+                angles += angles[:1]
+                
+                means_he += means_he[:1]
+                means_fattal += means_fattal[:1]
+                
+                fig, ax = plt.subplots(figsize=(6, 6), subplot_kw=dict(polar=True))
+                ax.plot(angles, means_he, color='tab:blue', linewidth=2, label='He et al.')
+                ax.fill(angles, means_he, color='tab:blue', alpha=0.1)
+                
+                ax.plot(angles, means_fattal, color='tab:green', linewidth=2, label='Fattal')
+                ax.fill(angles, means_fattal, color='tab:green', alpha=0.1)
+                
+                ax.set_xticks(angles[:-1])
+                ax.set_xticklabels(labels)
+                plt.title("Profil de Performance Moyen (Normalisé)", y=1.05)
+                plt.legend(loc='upper right', bbox_to_anchor=(0.1, 0.1))
+                plt.savefig(analytics_dir / "Radar_Summary.png", dpi=300)
+                plt.close()
         except Exception as e:
-            logger.warning(f"Erreur d'inférence pour omega={omega}: {e}")
-            loss = 0.0 # Pénalité max (score nul)
-
-        self.history[omega] = loss
-        return loss
-
-    def find_optimal_omega(self) -> float:
-        """Exécute l'optimisation bornée."""
-        result = minimize_scalar(
-            self.objective, 
-            bounds=(0.5, 0.98), 
-            method='bounded',
-            options={'xatol': 1e-3, 'maxiter': 20}
-        )
-        return result.x
+            logger.warning(f"Erreur lors du Radar Chart : {e}")
 
 
-def process_dataset(config: dict, input_dir: Path, output_dir: Path):
-    """
-    Traite tout le dossier et génère le rapport CSV.
-    """
-    # Extensions d'images supportées
-    valid_extensions = {'.jpg', '.jpeg', '.png', '.bmp', '.tif', '.tiff'}
+
+def flatten_metrics(metrics_dict, prefix):
+    """Ajoute un préfixe aux clés des métriques (ex: 'psnr' -> 'He_psnr')."""
+    return {f"{prefix}_{k}": v for k, v in metrics_dict.items()}
+
+def make_comparison_strip(original, he, fattal):
+    """Crée une bande horizontale simple: Original | He | Fattal"""
+    h, w, c = original.shape
+    if he.dtype == np.uint8: he = he.astype(np.float32) / 255.0
+    if fattal.dtype == np.uint8: fattal = fattal.astype(np.float32) / 255.0
+    
+    strip = np.hstack((original, he, fattal))
+    return strip
+
+def process_dataset(config, input_dir, output_dir, ref_dir=None):
+    valid_extensions = {'.jpg', '.jpeg', '.png', '.bmp', '.tif'}
     image_files = [p for p in input_dir.iterdir() if p.suffix.lower() in valid_extensions]
     
     if not image_files:
-        logger.error(f"Aucune image trouvée dans {input_dir}")
+        logger.error("Aucune image trouvée.")
         return
 
-    logger.info(f"Traitement de {len(image_files)} images...")
-    
+    (output_dir / "He").mkdir(parents=True, exist_ok=True)
+    (output_dir / "Fattal").mkdir(parents=True, exist_ok=True)
+    (output_dir / "Comparisons").mkdir(parents=True, exist_ok=True)
+
     results_data = []
+    dehazer = Dehazer(config)
     
-    # Barre de progression
-    pbar = tqdm(image_files, desc="Batch Processing")
-    
-    for img_path in pbar:
+    logger.info(f"Démarrage du batch sur {len(image_files)} images.")
+    if ref_dir:
+        logger.info(f"Mode Full-Reference activé avec : {ref_dir}")
+    else:
+        logger.info("Mode No-Reference (pas de dossier Ground Truth fourni).")
+
+    for img_path in tqdm(image_files, desc="Processing"):
         row = {'filename': img_path.name}
-        start_time = time.time()
         
         try:
-            pbar.set_postfix_str(f"Processing {img_path.name[:10]}...")
+            # 1. Lecture Image
+            original = read_image(str(img_path))
             
-            # 1. Lecture
-            original_image = read_image(str(img_path))
+            # Lecture Référence (si dispo)
+            ref_img = None
+            if ref_dir:
+                ref_p = ref_dir / img_path.name
+                if ref_p.exists():
+                    ref_img = read_image(str(ref_p))
+                    if ref_img.shape != original.shape:
+                        logger.warning(f"Dimensions incohérentes pour {img_path.name}. Métriques FR ignorées.")
+                        ref_img = None
+
+            # 2. Inférence HE
+            t0 = time.time()
+            res_he = dehazer.infer_he(original)
+            row['He_time'] = time.time() - t0
+            save_image(res_he, str(output_dir / "He" / img_path.name))
+
+            # 3. Inférence FATTAL
+            t0 = time.time()
+            try:
+                res_fattal = dehazer.infer_fattal(original)
+                row['Fattal_time'] = time.time() - t0
+                save_image(res_fattal, str(output_dir / "Fattal" / img_path.name))
+                fattal_success = True
+            except Exception as e:
+                logger.warning(f"Fattal échec sur {img_path.name}: {e}")
+                res_fattal = np.zeros_like(original)
+                row['Fattal_time'] = 0
+                fattal_success = False
+
+            # 4. Comparaison Visuelle
+            comp_img = make_comparison_strip(original, res_he, res_fattal)
+            save_image(comp_img, str(output_dir / "Comparisons" / f"comp_{img_path.name}"))
+
+            # 5. Calcul Métriques (HE)
+            m_he_nr = metrics.compute_nr_metrics(original, res_he)
+            row.update(flatten_metrics(m_he_nr, "He"))
             
-            # 2. Optimisation
-            optimizer = RobustOptimizer(config, original_image)
-            best_omega = optimizer.find_optimal_omega()
-            row['optimal_omega'] = round(best_omega, 4)
-            
-            # 3. Génération Finale
-            final_config = config.copy()
-            final_config['algorithm']['omega'] = best_omega
-            
-            dehazer = Dehazer(final_config)
-            restored_image = dehazer.infer(original_image)
-            
-            # 4. Sauvegarde
-            save_name = f"{img_path.stem}_dehazed.png"
-            save_image(restored_image, str(output_dir / save_name))
-            
-            # 5. Calcul des Métriques (NR)
-            # On calcule tout pour le rapport académique
-            nr_metrics = metrics.compute_nr_metrics(original_image, restored_image)
-            row.update(nr_metrics)
-            
-            row['status'] = 'success'
+            if ref_img is not None:
+                m_he_fr = metrics.compute_fr_metrics(res_he, ref_img)
+                row.update(flatten_metrics(m_he_fr, "He"))
+
+            # 6. Calcul Métriques (FATTAL)
+            if fattal_success:
+                m_fa_nr = metrics.compute_nr_metrics(original, res_fattal)
+                row.update(flatten_metrics(m_fa_nr, "Fattal"))
+                
+                if ref_img is not None:
+                    m_fa_fr = metrics.compute_fr_metrics(res_fattal, ref_img)
+                    row.update(flatten_metrics(m_fa_fr, "Fattal"))
 
         except Exception as e:
-            logger.error(f"Echec sur {img_path.name}: {e}")
-            row['status'] = 'failed'
-            row['error_msg'] = str(e)
-        
-        row['processing_time'] = round(time.time() - start_time, 2)
+            logger.error(f"Erreur globale sur {img_path.name}: {e}")
+            continue
+            
         results_data.append(row)
 
-    # --- Génération du Rapport ---
+    # Export CSV
     if results_data:
         df = pd.DataFrame(results_data)
         
-        # Réorganisation des colonnes pour la lisibilité
-        cols = ['filename', 'status', 'optimal_omega', 'processing_time', 
-                'hautiere_e', 'hautiere_r', 'hautiere_sigma', 
-                'colorfulness_out', 'dark_channel_residual']
-        # On garde les colonnes existantes, en mettant les importantes au début
-        final_cols = [c for c in cols if c in df.columns] + [c for c in df.columns if c not in cols]
-        df = df[final_cols]
+        cols = list(df.columns)
+        priority = ['filename', 'He_psnr', 'Fattal_psnr', 'He_ssim', 'Fattal_ssim', 
+                    'He_hautiere_r', 'Fattal_hautiere_r']
+        ordered_cols = [c for c in priority if c in cols] + [c for c in cols if c not in priority]
         
-        # Sauvegarde CSV
-        csv_path = output_dir / "batch_report.csv"
-        df.to_csv(csv_path, index=False)
-        logger.info(f"Rapport détaillé sauvegardé : {csv_path}")
+        df = df[ordered_cols]
+        csv_path = output_dir / "full_benchmark_report.csv"
+        df.to_csv(csv_path, index=False, float_format='%.4f')
+        logger.info(f"Rapport CSV sauvegardé : {csv_path}")
         
-        # Affichage des statistiques globales (Console)
-        if 'hautiere_r' in df.columns:
-            mean_r = df[df['status']=='success']['hautiere_r'].mean()
-            mean_omega = df[df['status']=='success']['optimal_omega'].mean()
-            logger.info("--- RÉSULTATS GLOBAUX ---")
-            logger.info(f"Images traitées avec succès : {len(df[df['status']=='success'])} / {len(df)}")
-            logger.info(f"Moyenne Omega Optimal     : {mean_omega:.3f}")
-            logger.info(f"Moyenne Gain Visibilité (r): {mean_r:.3f}")
-            logger.info("---------------------------")
+        logger.info("Génération des graphiques analytiques...")
+        try:
+            generate_comprehensive_analytics(df, output_dir)
+            logger.info("Terminé. Graphiques disponibles dans 'Analytics_Graphs'.")
+        except Exception as e:
+            logger.error(f"Erreur lors de la génération des graphiques : {e}", exc_info=True)
 
 def main():
-    parser = argparse.ArgumentParser(description="Batch Auto-Tuned Dehazing for Datasets.")
-    parser.add_argument('--config', type=str, required=True, help="Config de base (YAML).")
-    parser.add_argument('--input-dir', type=str, required=True, help="Dossier contenant les images brumeuses.")
-    parser.add_argument('--output-dir', type=str, default="results/batch_run", help="Dossier de sortie.")
+    parser = argparse.ArgumentParser(description="Batch Benchmark: He vs Fattal + Analytics")
+    parser.add_argument('--config', type=str, required=True, help="Config YAML")
+    parser.add_argument('--input-dir', type=str, required=True, help="Dossier images brumeuses")
+    parser.add_argument('--output-dir', type=str, default="results/benchmark", help="Sortie")
+    parser.add_argument('--ref-dir', type=str, default=None, help="Dossier images de référence (GT) pour métriques Full-Reference")
     
     args = parser.parse_args()
-    
     setup_basic_logging("INFO")
     
+    config = load_config(args.config)
     input_dir = Path(args.input_dir)
     output_dir = Path(args.output_dir)
+    ref_dir = Path(args.ref_dir) if args.ref_dir else None
     
     if not input_dir.exists():
-        logger.error(f"Dossier d'entrée introuvable : {input_dir}")
+        logger.error(f"Dossier introuvable: {input_dir}")
         exit(1)
         
-    config = load_config(args.config)
-    output_dir.mkdir(parents=True, exist_ok=True)
-    
-    process_dataset(config, input_dir, output_dir)
+    process_dataset(config, input_dir, output_dir, ref_dir)
 
 if __name__ == '__main__':
     main()

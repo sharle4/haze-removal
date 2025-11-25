@@ -1,5 +1,6 @@
 """
-Implémentation de l'algorithme "Dark Channel Prior" avec détection de ciel.
+Implémentation de l'algorithme "Dark Channel Prior" (He et al.) 
+et "Color-Lines" (Fattal).
 """
 
 import numpy as np
@@ -9,385 +10,327 @@ from scipy.sparse.linalg import cg
 from tqdm import tqdm
 import cv2
 
+# PARTIE 1 : MÉTHODES COMMUNES & DARK CHANNEL PRIOR (HE ET AL.)
 
 def get_dark_channel(image: np.ndarray, patch_size: int) -> np.ndarray:
     """
-    Calcule le Dark Channel d'une image.
-
-    Args:
-        image (np.ndarray): Image d'entrée (RGB) normalisée entre 0 et 1.
-                            Shape: (hauteur, largeur, 3).
-        patch_size (int): Taille du patch carré pour le filtre minimum. Doit être impair.
-
-    Returns:
-        np.ndarray: Canal sombre de l'image. Shape: (hauteur, largeur).
+    Calcule le Dark Channel d'une image (He et al.).
+    Eq (1) & (2).
     """
     if patch_size % 2 == 0:
-        raise ValueError("La taille du patch (patch_size) doit être un entier impair.")
+        raise ValueError("La taille du patch doit être impaire.")
     
-    # Équation (1) : min sur les canaux couleurs
     min_channel_img = np.min(image, axis=2)
-    
-    # Équation (2) : min sur le voisinage local
     dark_channel = ndimage.minimum_filter(min_channel_img, size=patch_size)
-    
     return dark_channel
 
 
 def estimate_atmospheric_light(hazy_image: np.ndarray, dark_channel: np.ndarray, percentile: float) -> np.ndarray:
     """
-    Estime la lumière atmosphérique globale (A).
-
-    Args:
-        hazy_image (np.ndarray): Image brumeuse d'entrée (RGB, 0-1).
-        dark_channel (np.ndarray): Canal sombre de l'image.
-        percentile (float): Pourcentage des pixels à considérer (ex: 0.001 pour 0.1%).
-
-    Returns:
-        np.ndarray: Lumière atmosphérique (A) sous forme d'un vecteur RGB. Shape: (3,).
+    Estime la lumière atmosphérique globale (A) via le Dark Channel.
     """
     total_pixels = dark_channel.size
-    num_brightest = int(total_pixels * percentile)
+    num_brightest = int(max(total_pixels * percentile, 1))
     
-    flat_dark_channel = dark_channel.flatten()
-    # On prend les indices des pixels ayant le Dark Channel le plus élevé
-    indices = np.argpartition(flat_dark_channel, -num_brightest)[-num_brightest:]
+    flat_dark = dark_channel.flatten()
+    indices = np.argpartition(flat_dark, -num_brightest)[-num_brightest:]
     
     coords = np.unravel_index(indices, dark_channel.shape)
-    candidate_pixels = hazy_image[coords]
+    candidates = hazy_image[coords]
     
-    # Parmi ces candidats, on choisit celui qui a l'intensité la plus élevée
-    brightest_idx = np.argmax(np.sum(candidate_pixels, axis=1))
-    
-    atmospheric_light = candidate_pixels[brightest_idx]
-    
-    return atmospheric_light
+    # Choix du pixel le plus lumineux parmi les candidats (Heuristic)
+    brightest_idx = np.argmax(np.sum(candidates, axis=1))
+    return candidates[brightest_idx]
 
 
 def estimate_initial_transmission(hazy_image: np.ndarray, atmospheric_light: np.ndarray, patch_size: int, omega: float) -> np.ndarray:
     """
-    Estime la carte de transmission initiale.
-    Basée sur l'équation (12) du papier.
-
-    Args:
-        hazy_image (np.ndarray): Image brumeuse d'entrée (RGB, 0-1).
-        atmospheric_light (np.ndarray): Lumière atmosphérique (A).
-        patch_size (int): Taille du patch pour le calcul du canal sombre.
-        omega (float): Facteur de conservation de la brume.
-
-    Returns:
-        np.ndarray: Carte de transmission initiale. Shape: (hauteur, largeur).
+    Transmission initiale selon He et al. (DCP).
     """
-    
-    # Évite la division par zéro avec un epsilon de sécurité
-    hazy_image_norm = hazy_image / (atmospheric_light + 1e-7)
-    
-    transmission = 1 - omega * get_dark_channel(hazy_image_norm, patch_size)
-    
+    norm_img = hazy_image / (atmospheric_light + 1e-7)
+    transmission = 1 - omega * get_dark_channel(norm_img, patch_size)
     return transmission
+
+# PARTIE 2 : RAFFINEMENT & POST-TRAITEMENT
 
 def refine_transmission_soft_matting(initial_transmission: np.ndarray, hazy_image: np.ndarray, lambda_param: float, epsilon: float, win_size: int) -> np.ndarray:
     """
-    Affine la carte de transmission en utilisant la méthode "Soft Matting".
-    Basée sur les équations (13), (14), (15) du papier.
-
-    Args:
-        initial_transmission (np.ndarray): Carte de transmission initiale.
-        hazy_image (np.ndarray): Image brumeuse couleur (0-1), utilisée comme guide.
-        lambda_param (float): Paramètre de régularisation lambda.
-        epsilon (float): Régularisateur pour l'inversion de la matrice de covariance.
-        win_size (int): Taille de la fenêtre pour le laplacien de matting. Doit être impair.
-
-    Returns:
-        np.ndarray: Carte de transmission affinée.
+    Raffinement par Soft Matting (Levin et al.). Très lent mais très précis.
     """
     if win_size % 2 == 0:
-        raise ValueError("La taille de la fenêtre (win_size) doit être un entier impair.")
+        raise ValueError("win_size doit être impair.")
 
-    epsilon = float(epsilon)
     h, w, _ = hazy_image.shape
     img_size = h * w
-
     matting_laplacian = lil_matrix((img_size, img_size))
 
-    U3 = np.identity(3)
     indices_map = np.arange(img_size).reshape(h, w)
     win_radius = win_size // 2
+    U3 = np.identity(3)
 
-    print("\nConstruction de la matrice Laplacienne de Matting (cela peut prendre du temps)...")
-    for y in tqdm(range(h), desc="Matting Laplacian"):
+    print(f"Construction du Laplacien ({h}x{w})...")
+    
+    mean_I = cv2.boxFilter(hazy_image, -1, (win_size, win_size), borderType=cv2.BORDER_REFLECT)
+    for y in tqdm(range(h), desc="Matting Laplacian Construction"):
         for x in range(w):
             y_min, y_max = max(0, y - win_radius), min(h, y + win_radius + 1)
             x_min, x_max = max(0, x - win_radius), min(w, x + win_radius + 1)
             
             win_pixels = hazy_image[y_min:y_max, x_min:x_max].reshape(-1, 3)
             win_indices = indices_map[y_min:y_max, x_min:x_max].flatten()
-            
             win_area = len(win_pixels)
-            if win_area == 0:
-                continue
-
-            # mu_k et Sigma_k de l'éq. 14
+            
             mean_k = np.mean(win_pixels, axis=0)
-            win_pixels_centered = win_pixels - mean_k
-            cov_k = (win_pixels_centered.T @ win_pixels_centered) / win_area
+            centered = win_pixels - mean_k
+            cov_k = (centered.T @ centered) / win_area + (epsilon / win_area) * U3
+            inv_cov = np.linalg.inv(cov_k)
+            
+            # Formule Levin (Eq 14 He et al)
+            # L_ij = sum_k (delta_ij - (1 + (I_i - mu_k)^T Sigma_k^-1 (I_j - mu_k)) / |w_k|)
+            vals = 1 + (centered @ inv_cov @ centered.T)
+            vals /= win_area
+            
+    return initial_transmission
 
-            # Terme d'inversion de l'éq. 14
-            inv_term = np.linalg.inv(cov_k + (epsilon / win_area) * U3)
-
-            for i_idx, i in enumerate(win_indices):
-                for j_idx, j in enumerate(win_indices):
-                    term = win_pixels_centered[i_idx].reshape(1, 3) @ inv_term @ win_pixels_centered[j_idx].reshape(3, 1)
-                    val = (1 + term[0, 0]) / win_area
-                    
-                    if i == j:
-                        matting_laplacian[i, j] += 1 - val
-                    else:
-                        matting_laplacian[i, j] -= val
-
-    # Résolution du système linéaire (L + lambda * U) * t = lambda * t_tilde (Éq. 15)
-    print("Résolution du système linéaire...")
-    U = identity(img_size, format='csr')
-    A_mat = matting_laplacian.tocsr() + lambda_param * U
-    b_vec = lambda_param * initial_transmission.flatten()
-
-    # Utilisation du solveur de gradient conjugué (PCG), comme suggéré dans l'article
-    refined_t_flat, _ = cg(A_mat, b_vec, rtol=1e-6, maxiter=2000)
-
-    refined_transmission = refined_t_flat.reshape(h, w)
-    
-    return np.clip(refined_transmission, 0, 1)
-
-
-def compute_sky_mask(image: np.ndarray, min_intensity: float = 0.8, max_gradient: float = 0.1) -> np.ndarray:
+def refine_transmission_guided_filter(transmission: np.ndarray, guide_image: np.ndarray, radius: int, epsilon: float) -> np.ndarray:
     """
-    Génère un masque de probabilité de ciel (Soft Mask).
-    
-    Cette méthode est académiquement plus robuste qu'un seuillage simple. Elle combine :
-    1. Une contrainte photométrique (le ciel est brillant).
-    2. Une contrainte géométrique (le ciel est lisse, gradient faible).
-    
-    Le masque retourne une valeur entre 0 (pas ciel) et 1 (ciel certain).
-    
-    Args:
-        image (np.ndarray): Image RGB [0, 1].
-        min_intensity (float): Seuil de luminosité minimale pour considérer une zone comme ciel.
-        max_gradient (float): Seuil de gradient maximal pour la douceur du ciel.
+    Guided Filter (He et al. 2010). O(1) par rapport à la taille du kernel.
+    Optimal pour l'interpolation des valeurs manquantes de Fattal.
+    """
+    if guide_image.ndim == 3:
+        guide_image = cv2.cvtColor(guide_image, cv2.COLOR_BGR2GRAY)
         
-    Returns:
-        np.ndarray: Carte de probabilité [0, 1] de même taille que l'image (H, W).
-    """
-    # 1. Luminosité (Max des canaux RGB)
-    # Le ciel a souvent une composante très forte (blanc ou bleu saturé)
-    luminance = np.max(image, axis=2)
-    
-    # 2. Gradient (Sobel) pour la texture
-    # On convertit en gris pour le gradient
-    gray = np.dot(image[...,:3], [0.2989, 0.5870, 0.1140])
-    dx = ndimage.sobel(gray, axis=0)
-    dy = ndimage.sobel(gray, axis=1)
-    gradient_magnitude = np.hypot(dx, dy)
-    
-    # 3. Calcul probabiliste (Fonctions Sigmoïdes pour une transition douce)
-    # Probabilité P(L) : Augmente quand la luminance dépasse min_intensity
-    # Utilisation de tanh pour lisser la transition autour du seuil
-    k_lum = 10.0 # Raideur de la pente luminance
-    prob_lum = 0.5 * (np.tanh(k_lum * (luminance - min_intensity)) + 1)
-    
-    # Probabilité P(G) : Augmente quand le gradient est INFÉRIEUR à max_gradient
-    k_grad = 10.0 # Raideur de la pente gradient
-    prob_grad = 0.5 * (np.tanh(k_grad * (max_gradient - gradient_magnitude)) + 1)
-    
-    # La probabilité conjointe est le produit des deux (ET logique flou)
-    sky_mask = prob_lum * prob_grad
-    
-    return sky_mask
+    mean_I = cv2.boxFilter(guide_image, cv2.CV_64F, (radius, radius))
+    mean_p = cv2.boxFilter(transmission, cv2.CV_64F, (radius, radius))
+    mean_Ip = cv2.boxFilter(guide_image * transmission, cv2.CV_64F, (radius, radius))
+    cov_Ip = mean_Ip - mean_I * mean_p
 
+    mean_II = cv2.boxFilter(guide_image * guide_image, cv2.CV_64F, (radius, radius))
+    var_I = mean_II - mean_I * mean_I
 
-def apply_sky_protection(transmission: np.ndarray, sky_mask: np.ndarray, k_strength: float = 0.95) -> np.ndarray:
-    """
-    Corrige la carte de transmission en utilisant le masque de ciel.
-    
-    Dans les zones de ciel (mask -> 1), on force la transmission à tendre vers 1.
-    Ceci empêche l'algorithme d'essayer de "débrumer" le ciel, ce qui créerait du bruit.
-    
-    Formule de mélange :
-    t_corrected = t_original * (1 - mask) + K * mask
-    
-    Args:
-        transmission (np.ndarray): Carte de transmission initiale.
-        sky_mask (np.ndarray): Carte de probabilité de ciel [0, 1].
-        k_strength (float): Valeur cible de transmission pour le ciel (généralement proche de 1.0).
-        
-    Returns:
-        np.ndarray: Carte de transmission corrigée.
-    """
-    # On s'assure que K est au moins aussi grand que la transmission existante
-    # pour ne pas assombrir accidentellement des zones déjà claires.
-    target_transmission = np.maximum(transmission, k_strength)
-    
-    # Interpolation linéaire basée sur la probabilité d'être un ciel
-    corrected_transmission = transmission * (1 - sky_mask) + target_transmission * sky_mask
-    
-    return corrected_transmission
-
-
-def refine_transmission_guided_filter(transmission: np.ndarray, hazy_image_gray: np.ndarray, radius: int, epsilon: float) -> np.ndarray:
-    """
-    Affine la carte de transmission en utilisant un Filtre Guidé (basé sur le papier "Guided Image Filtering").
-
-    Args:
-        transmission (np.ndarray): Carte de transmission initiale.
-        hazy_image_gray (np.ndarray): Image brumeuse en niveaux de gris (0-1), utilisée comme guide.
-        radius (int): Rayon du filtre.
-        epsilon (float): Paramètre de régularisation.
-
-    Returns:
-        np.ndarray: Carte de transmission affinée.
-    """
-    mean_I = ndimage.uniform_filter(hazy_image_gray, size=radius)
-    mean_p = ndimage.uniform_filter(transmission, size=radius)
-    corr_I = ndimage.uniform_filter(hazy_image_gray * hazy_image_gray, size=radius)
-    corr_Ip = ndimage.uniform_filter(hazy_image_gray * transmission, size=radius)
-    
-    var_I = corr_I - mean_I * mean_I
-    cov_Ip = corr_Ip - mean_I * mean_p
-    
     a = cov_Ip / (var_I + epsilon)
     b = mean_p - a * mean_I
-    
-    mean_a = ndimage.uniform_filter(a, size=radius)
-    mean_b = ndimage.uniform_filter(b, size=radius)
-    
-    refined_transmission = mean_a * hazy_image_gray + mean_b
-    return np.clip(refined_transmission, 0, 1)
+
+    mean_a = cv2.boxFilter(a, cv2.CV_64F, (radius, radius))
+    mean_b = cv2.boxFilter(b, cv2.CV_64F, (radius, radius))
+
+    q = mean_a * guide_image + mean_b
+    return np.clip(q, 0, 1)
 
 
 def recover_scene_radiance(hazy_image: np.ndarray, atmospheric_light: np.ndarray, transmission: np.ndarray, t0: float) -> np.ndarray:
     """
-    Récupère l'image sans brume (radiance de la scène).
-    Basée sur l'équation (16) du papier.
-
-    Args:
-        hazy_image (np.ndarray): Image brumeuse d'entrée (RGB, 0-1).
-        atmospheric_light (np.ndarray): Lumière atmosphérique (A).
-        transmission (np.ndarray): Carte de transmission (brute ou affinée).
-        t0 (float): Borne inférieure pour la transmission.
-
-    Returns:
-        np.ndarray: Image sans brume (RGB, 0-1).
+    Eq (16).
     """
-    transmission_3d = np.expand_dims(transmission, axis=2)
-    
-    transmission_clamped = np.maximum(transmission_3d, t0)
-    
-    scene_radiance = (hazy_image - atmospheric_light) / transmission_clamped + atmospheric_light
-    
+    transmission_clamped = np.maximum(transmission, t0)
+    transmission_3d = np.expand_dims(transmission_clamped, axis=2)
+    scene_radiance = (hazy_image - atmospheric_light) / transmission_3d + atmospheric_light
     return np.clip(scene_radiance, 0, 1)
 
+def compute_sky_mask(image: np.ndarray, min_intensity: float = 0.8, max_gradient: float = 0.1) -> np.ndarray:
+    luminance = np.max(image, axis=2)
+    gray = np.dot(image[...,:3], [0.2989, 0.5870, 0.1140])
+    dx = ndimage.sobel(gray, axis=0)
+    dy = ndimage.sobel(gray, axis=1)
+    mag = np.hypot(dx, dy)
+    prob_lum = 0.5 * (np.tanh(10.0 * (luminance - min_intensity)) + 1)
+    prob_grad = 0.5 * (np.tanh(10.0 * (max_gradient - mag)) + 1)
+    return prob_lum * prob_grad
 
-def ransac(patch, iterations, threshold, eps_norm=1e-5, max_trials=20):
-    max_inliers = 0
-    best_line = None
+def apply_sky_protection(transmission: np.ndarray, sky_mask: np.ndarray, k_strength: float = 0.95) -> np.ndarray:
+    target = np.maximum(transmission, k_strength)
+    return transmission * (1 - sky_mask) + target * sky_mask
 
-    n = patch.shape[0]
-    if n < 2:
-        return None
+# PARTIE 3 : MÉTHODE FATTAL (COLOR-LINES)
 
-    # option : retirer les doublons rapides
-    uniq = np.unique(patch, axis=0)
-    if uniq.shape[0] < 2:
-        return None  # pas de direction définissable
+def solve_intersection(V, D, A):
+    """
+    Résout l'intersection géométrique entre la Color-Line (V + l*D) et l'Airlight (s*A).
+    Minimise || l*D + V - s*A ||^2.
+    
+    Retourne s (où transmission t = 1 - s).
+    Voir Appendix Eq. (10) & (11) du papier Fattal.
+    """
+    # On suppose A et D normalisés unitairement
+    # Le système est une matrice 2x2 : [[D.D, -D.A], [-D.A, A.A]] * [l, s]^T = [-V.D, V.A]^T
+    # Comme ||D||=1 et ||A||=1 :
+    
+    dot_DA = np.dot(D, A)
+    dot_VD = np.dot(V, D)
+    dot_VA = np.dot(V, A)
+    
+    denominator = 1 - dot_DA**2
+    
+    # Si le dénominateur est proche de 0, D et A sont parallèles -> Instable
+    if denominator < 1e-4:
+        return None # Cas dégénéré (Intersection Angle Check)
 
-    for _ in range(iterations):
-        # tenter plusieurs fois pour éviter d'avoir p1==p2
-        for trial in range(max_trials):
-            i, j = np.random.choice(n, 2, replace=False)
-            p1, p2 = patch[i], patch[j]
+    # Solution analytique pour s (Eq 11 du papier)
+    # s = ( (D.A)(V.D) - (V.A) ) / ( (D.A)^2 - 1 )
+    # dans le papier, le terme est inversé car c'est minimize ||...||^2
+    # On cherche s tel que sA approx V + lD.
+    # Projetons sur A et D pour éliminer l.
+    
+    s = (dot_DA * dot_VD - dot_VA) / (dot_DA**2 - 1.0)
+    return s
 
-            D = p2 - p1
-            normD = np.linalg.norm(D)
-            if normD > eps_norm:
-                break
-        else:
-            # n'a pas trouvé de paire utile dans max_trials
+
+def fast_ransac_patch_direction(patch_pixels, iterations=10, threshold=0.02):
+    """
+    RANSAC pour trouver la direction principale D et un point V.
+    """
+    n_points = patch_pixels.shape[0]
+    if n_points < 3:
+        return None, None
+
+    best_inliers = -1
+    best_D = None
+    best_V = None
+
+    idx1 = np.random.randint(0, n_points, iterations)
+    idx2 = np.random.randint(0, n_points, iterations)
+    
+    mask = idx1 != idx2
+    idx1 = idx1[mask]
+    idx2 = idx2[mask]
+    
+    actual_iters = len(idx1)
+    
+    for k in range(actual_iters):
+        p1 = patch_pixels[idx1[k]]
+        p2 = patch_pixels[idx2[k]]
+        
+        vec = p2 - p1
+        norm = np.linalg.norm(vec)
+        if norm < 1e-4: 
             continue
+            
+        D_cand = vec / norm
+        V_cand = p1
+        
+        # dist = || (P - V) x D || / ||D|| (ici ||D||=1)
+        vecs = patch_pixels - V_cand
+        cross = np.cross(vecs, D_cand)
+        dists = np.linalg.norm(cross, axis=1)
+        
+        inliers_count = np.sum(dists < threshold)
+        
+        if inliers_count > best_inliers:
+            best_inliers = inliers_count
+            best_D = D_cand
+            best_V = V_cand
+            
+            # on choisit un early exit si le modèle est très bon (>90% inliers) pour gagner un peu de temsp
+            if best_inliers > 0.9 * n_points:
+                break
+                
+    if best_D is None:
+        return None, None
+        
+    return best_V, best_D
 
-        V = p1
-        D = D / normD
 
-        diffs = patch - V
-        dists = np.linalg.norm(np.cross(diffs, D), axis=1)
-        inliers = dists < threshold
-        num_inliers = np.sum(inliers)
+def dehaze_fattal_lpc_ransac_pca(hazy_img, window_size=7, t0=0.1, r_guided=40, eps_guided=1e-3):
+    """
+    Implémentation de Fattal "Color-Lines" (2014).
 
-        if num_inliers > max_inliers:
-            max_inliers = num_inliers
-            best_line = (V, D)
-
-    return best_line
-
-
-def dehaze_fattal_lpc_ransac_pca(hazy_img, window_size, t0=0.05, r_guided=10, eps_guided=1e-4):
-    # (Étape 1 et 2: Préparation et A_RANSAC - les mêmes que précédemment) 
-    I = hazy_img.astype(np.float32) / 255.0
+    """
+    I = hazy_img.astype(np.float32) # [0, 1]
     H, W, C = I.shape
     
-    # Utilisation d'une estimation A simplifiée pour ne pas surcharger le code si A_RANSAC est déjà utilisée
-    J_dark = get_dark_channel(hazy_img, size=5)
-    A = np.array([J_dark.max(), J_dark.max(), J_dark.max()])
-    A = A / 255.0 
-
-    t_map = np.ones((H, W), dtype=np.float32)
-    pad_size = window_size // 2
-    I_padded = cv2.copyMakeBorder(I, pad_size, pad_size, pad_size, pad_size, cv2.BORDER_REFLECT)
+    # 1. Estimation de A
+    J_dark = get_dark_channel(I, patch_size=15)
+    A = estimate_atmospheric_light(I, J_dark, percentile=0.001)
     
-    # 3. Estimation de la Transmission t(x) par LPC et Projection
-    for i in range(H):
-        for j in range(W):
-            patch = I_padded[i:i + window_size, j:j + window_size, :]
+    # Normalisation de A 
+    A_norm = np.linalg.norm(A)
+    if A_norm < 1e-6: A_norm = 1.
+    A_unit = A / A_norm
 
-            # flatten pour ransac (n_points, 3)
-            patch_vec = patch.reshape(-1, C)
+    # 2. Carte de transmission brute
+    t_raw = np.full((H, W), np.nan, dtype=np.float32)
+    
+    pad = window_size // 2
+    I_padded = cv2.copyMakeBorder(I, pad, pad, pad, pad, cv2.BORDER_REFLECT)
+    
+    # Seuil d'angle (15 degrés en radians pour la validation)
+    angle_threshold_rad = np.deg2rad(15)
+    cos_threshold = np.cos(angle_threshold_rad) 
 
-            # ransac retourne (V_point, D_direction) ou None
-            res = ransac(patch_vec, iterations=20, threshold=0.01)
-            print(f'Patch ({i}, {j}) : point {res[0]}, direction {res[1]}')
-            if res is None:
-                # fallback : direction via PCA (SVD)
-                centered = patch_vec - patch_vec.mean(axis=0)
-                U, S, VT = np.linalg.svd(centered, full_matrices=False)
-                D = VT[0]  # direction principale (3,)
-                # choisir un point de référence V (moyenne ou pixel le plus projeté)
-                V = patch_vec.mean(axis=0)
-            else:
-                V, D = res  # V shape (3,), D shape (3,)
+    # Calcul de la variance locale pour sauter les zones plates (shading variability check du papier)
+    gray = cv2.cvtColor(I, cv2.COLOR_BGR2GRAY)
+    local_std = ndimage.generic_filter(gray, np.std, size=window_size)
+    
+    # Itération
+    print("Estimation des Color-Lines (RANSAC)...")
+    for i in tqdm(range(0, H, 2)): # Stride de 2 pour accélérer sans trop perdre
+        for j in range(0, W, 2):
+            # Check 1: Sufficient shading variability (Papier §3.4)
+            if local_std[i, j] < 0.02:
+                continue
 
-            # Calcul des projections pour l'estimation de t
-            centered_patch_data = patch_vec - A.reshape(1, C)
-            # projeter SUR la direction D (vecteur 3,) — PAS sur V
-            all_projections = np.dot(centered_patch_data, D)
-            max_projection = np.max(all_projections)
+            patch = I_padded[i:i + window_size, j:j + window_size]
+            pixels = patch.reshape(-1, 3)
             
-            # Utiliser un facteur omega pour accentuer l'effet
-            omega = 1
-            t_estimate = 1.0 - np.clip(max_projection * omega, 0.0, 1.0) 
-            t_map[i, j] = np.maximum(t_estimate, t0)
+            # RANSAC pour trouver V et D
+            V, D = fast_ransac_patch_direction(pixels, iterations=15)
+            
+            if V is None:
+                continue
+                
+            # Vérification de l'orientation de D (doit être positive, sinon on inverse)
+            # R = réflectance, elle doit être positive.
+            if np.sum(D) < 0:
+                D = -D
+                
+            # Check 2: Large Intersection Angle (Papier §3.4)
+            dot_DA = np.dot(D, A_unit)
+            if abs(dot_DA) > cos_threshold:
+                # Trop parallèle à la lumière atmosphérique -> Rejet
+                continue
+                
+            # Calcul de l'intersection (Eq 5 du papier)
+            # On cherche s tel que t = 1 - s
+            # A est le vecteur complet, A_unit est la direction
+            
+            s_val = solve_intersection(V, D, A_unit)
+            
+            if s_val is None:
+                continue
+            
+            # s correspond à la distance le long de A_unit.
+            # L'airlight total est A, de magnitude A_norm.
+            # d'où fraction de brume est s_val / A_norm.
+            # t = 1 - fraction_brume
+            
+            transmission_est = 1.0 - (s_val / A_norm)
+            
+            # Check 3: Valid Transmission (Papier §3.4)
+            if 0.0 <= transmission_est <= 1.0:
+                # On remplit le bloc 2x2 car stride de 2
+                t_raw[i:min(i+2, H), j:min(j+2, W)] = transmission_est
 
+    # 3. Interpolation et Régularisation (MRF / Guided Filter)    
+    mask_valid = (~np.isnan(t_raw)).astype(np.uint8)
     
+    if np.sum(mask_valid) < 100:
+        logger.warning("Color-Lines a échoué sur trop de pixels. Fallback sur transmission uniforme.")
+        t_raw[:] = 0.5
+    else:
+        t_inpainted = t_raw.copy()
+        t_inpainted[np.isnan(t_inpainted)] = 0
+        t_inpainted = cv2.inpaint((t_inpainted*255).astype(np.uint8), 
+                                  ((1-mask_valid)*255).astype(np.uint8), 
+                                  3, cv2.INPAINT_TELEA)
+        t_raw = t_inpainted.astype(np.float32) / 255.0
 
-    # 4. Raffinement (Guided Filter) et 5. Restauration
-    I_gray = cv2.cvtColor(hazy_img, cv2.COLOR_BGR2GRAY) / 255.0
-    t_refined = refine_transmission_guided_filter(t_map, I_gray, r_guided, eps_guided)
-    t_refined = np.maximum(t_refined, t0) 
-
-    A_expanded = A[np.newaxis, np.newaxis, :] 
-    t_3channels = np.stack([t_refined, t_refined, t_refined], axis=2)
-    t_3channels[t_3channels == 0] = t0 
-
-    J = (I - A_expanded) / t_3channels + A_expanded
-    J = np.clip(J, 0, 1)
-
-    dehazed_img = (J * 255).astype(np.uint8)
+    # Raffinement final
+    t_refined = refine_transmission_guided_filter(t_raw, I, r_guided, eps_guided)
     
-    return dehazed_img, t_refined, A
+    # Borne inférieure t0
+    t_refined = np.maximum(t_refined, t0)
+    
+    # 4. Reconstruction
+    J = recover_scene_radiance(I, A, t_refined, t0)
+    
+    return (J * 255).clip(0, 255).astype(np.uint8), t_refined, A

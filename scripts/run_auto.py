@@ -1,8 +1,6 @@
 """
 Script d'Optimisation Automatique des Paramètres (Adaptive Dehazing).
-
-Version Académique Avancée :
-Utilise une fonction de coût composite régularisée pour éviter le sur-ajustement (over-dehazing).
+Utilise une fonction de coût pour éviter le sur-ajustement.
 Prend en compte :
 1. Le gain de visibilité (Hautière r)
 2. La saturation "douce" (Soft Saturation) pour éviter les noirs bouchés
@@ -19,14 +17,11 @@ import numpy as np
 import pandas as pd
 from scipy.optimize import minimize_scalar
 
-# --- VISUALISATION ---
 import matplotlib
-matplotlib.use('Agg') # Backend non-interactif
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-import seaborn as sns
 # ---------------------
 
-# Ajout du chemin src au path
 sys.path.append(str(Path(__file__).resolve().parents[1] / 'src'))
 
 from dehazing import Dehazer
@@ -42,7 +37,6 @@ class AutoTuner:
         self.history = {} 
         self.iteration_order = []
         
-        # Pré-calcul des statistiques de l'image originale pour la comparaison
         self.orig_mean_intensity = np.mean(image)
         self.orig_dark_pixels = np.count_nonzero(image < 0.05) / image.size
 
@@ -81,7 +75,6 @@ class AutoTuner:
         if omega in self.history:
             return self.history[omega]
 
-        # --- Inférence ---
         current_config = self.base_config.copy()
         if 'algorithm' not in current_config:
             current_config['algorithm'] = {}
@@ -90,11 +83,8 @@ class AutoTuner:
         dehazer = Dehazer(current_config)
         restored = dehazer.infer(self.image)
         
-        # --- Analyse ---
         stats = self.calculate_advanced_score(restored, self.image)
-        
-        # --- Construction du Score (Heuristique Académique) ---
-        
+                
         # 1. Gain (Visibilité)
         # On plafonne le gain utile. Au-delà de r=3.0, c'est souvent du bruit.
         gain_score = min(stats['r'], 3.0) 
@@ -116,7 +106,6 @@ class AutoTuner:
         # Score Final
         score = gain_score - (1.5 * saturation_penalty) - (2.0 * darkness_penalty)
         
-        # Logs détaillés pour debugguer le comportement
         logger.debug(
             f"Ω={omega:.3f} | r={stats['r']:.2f} | "
             f"Sat={stats['soft_saturation']:.1%} (Pen={saturation_penalty:.2f}) | "
@@ -148,24 +137,20 @@ class AutoTuner:
         sns.set_theme(style="whitegrid")
         plt.figure(figsize=(10, 6))
         
-        # Tracer la courbe triée
         df_sorted = df.sort_values(by='Omega')
         plt.plot(df_sorted['Omega'], df_sorted['Score'], 'b-', alpha=0.5, zorder=1, label='Profil de Score')
         
-        # Points évalués
         scatter = plt.scatter(
             df['Omega'], df['Score'], c=df['Iteration'], cmap='viridis', 
             s=80, edgecolor='k', zorder=2, label='Itérations'
         )
         plt.colorbar(scatter, label='Ordre')
         
-        # Optimum
-        # Récupération sécurisée du score
         rounded_best_omega = round(float(best_omega), 4)
         if rounded_best_omega in self.history:
             best_score = -self.history[rounded_best_omega]
         else:
-            best_score = -self.objective_function(best_omega) # Fallback
+            best_score = -self.objective_function(best_omega)
 
         plt.scatter(
             [best_omega], [best_score], color='red', s=200, marker='*', 
@@ -194,13 +179,13 @@ class AutoTuner:
         return result.x, -result.fun
 
 def main():
-    parser = argparse.ArgumentParser(description="Auto-Tune Dehazing : Version Académique Avancée")
+    parser = argparse.ArgumentParser(description="Auto-Tune Dehazing")
     parser.add_argument('--config', type=str, required=True, help="Config YAML")
     parser.add_argument('--image-path', type=str, required=True, help="Image d'entrée")
     parser.add_argument('--output-dir', type=str, default="results/auto_tuned", help="Sortie")
     
     args = parser.parse_args()
-    setup_basic_logging("INFO") # Debug activé pour voir les pénalités
+    setup_basic_logging("INFO")
     
     image_base_dir = Path('./images')
     output_base_dir = Path('./results')

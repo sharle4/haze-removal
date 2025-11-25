@@ -1,10 +1,7 @@
 """
 Script d'évaluation expérimentale (Batch Processing).
-
 Ce script permet d'analyser la robustesse de l'algorithme en faisant varier
 le paramètre critique 'omega' sur une image donnée.
-Il calcule systématiquement TOUTES les métriques (NR et FR),
-exporte les résultats dans un fichier CSV et génère une suite complète de graphiques.
 """
 
 import argparse
@@ -47,17 +44,14 @@ def plot_single_metric(df, x_col, y_col, ax, color, title, ylabel):
 
 def generate_radar_chart(df, output_dir):
     """Génère un graphique radar pour comparer les profils à faible, moyen et fort Omega."""
-    # Sélection de 3 points représentatifs
     omegas = sorted(df['omega'].unique())
     indices = df[df['omega'].isin(omegas[-3:])].index
     selected_rows = df.iloc[indices].copy()
     
-    # Métriques à afficher sur le radar (toutes normalisées)
     metrics_to_plot = ['hautiere_r', 'hautiere_sigma', 'colorfulness_out', 'dark_channel_residual']
     if 'psnr' in df.columns:
         metrics_to_plot += ['psnr', 'ssim', 'ciede2000']
     
-    # Normalisation pour l'affichage (0-1)
     df_norm = df.copy()
     for m in metrics_to_plot:
         if m in df_norm.columns:
@@ -65,11 +59,10 @@ def generate_radar_chart(df, output_dir):
             
     selected_norm = df_norm.iloc[indices]
     
-    # Création du Radar
     labels = [m.replace('hautiere_', '').replace('_out', '').upper() for m in metrics_to_plot]
     num_vars = len(labels)
     angles = [n / float(num_vars) * 2 * math.pi for n in range(num_vars)]
-    angles += angles[:1] # Fermer la boucle
+    angles += angles[:1]
     
     fig, ax = plt.subplots(figsize=(8, 8), subplot_kw=dict(polar=True))
     
@@ -90,7 +83,7 @@ def generate_radar_chart(df, output_dir):
 
 def generate_plots(df: pd.DataFrame, output_dir: Path):
     """
-    Génère une suite complète de graphiques académiques.
+    Génère une suite complète de graphiques.
     """
     sns.set_theme(style="whitegrid")
     
@@ -123,7 +116,6 @@ def generate_plots(df: pd.DataFrame, output_dir: Path):
     plt.close()
 
     # 3. ANALYSE COULEUR (Colorfulness)
-    # Comparaison In vs Out
     plt.figure(figsize=(10, 6))
     plt.plot(df['omega'], df['colorfulness_out'], label='Restored', color='tab:purple', marker='o')
     plt.axhline(y=df['colorfulness_in'].iloc[0], color='gray', linestyle='--', label='Original Input')
@@ -149,7 +141,7 @@ def generate_plots(df: pd.DataFrame, output_dir: Path):
         plt.savefig(output_dir / "analysis_fidelity_full.png", dpi=300)
         plt.close()
 
-    # 5. RADAR CHART (Vue synthétique)
+    # 5. RADAR CHART
     try:
         generate_radar_chart(df, output_dir)
     except Exception as e:
@@ -224,7 +216,6 @@ def run_experiment(
     if results:
         df = pd.DataFrame(results)
         
-        # Tri des colonnes
         first_cols = ['filename', 'omega']
         metrics_cols = [c for c in df.columns if c not in first_cols]
         df = df[first_cols + metrics_cols]
